@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -55,7 +56,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             recursive=not args.no_recursive,
         )
-    except (FileNotFoundError, ValueError) as e:
+    except (OSError, ValueError, RuntimeError, sqlite3.DatabaseError) as e:
         print(f"错误：{e}", file=sys.stderr)
         return 1
 
@@ -81,7 +82,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     root = Path(args.library)
     try:
         conn = db.open_library(root)
-    except db.NotALibraryError as e:
+    except (OSError, RuntimeError, sqlite3.DatabaseError) as e:
         print(f"错误：{e}", file=sys.stderr)
         return 1
     try:
@@ -100,7 +101,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         for row in conn.execute(
             "SELECT platform, COUNT(*) FROM source GROUP BY platform ORDER BY 2 DESC"
         ):
-            print(f"  来源 {row[0]:<8}{row[1]}")
+            print(f"  来源 {row[0]:<10}{row[1]}")
     finally:
         conn.close()
     return 0

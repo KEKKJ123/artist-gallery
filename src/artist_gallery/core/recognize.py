@@ -67,8 +67,10 @@ X_MEDIA_KEY = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])[A-Za-z0-9_-]{15}$", _A)
 
 # 文件名里出现这些字样时，末尾的 8–9 位数字更可能是 QQ 号 / 账号，而不是 Pixiv ID：
 # 带 guarded 标记的规则命中后降为中置信，进收件箱等确认。不区分大小写。
+# 英文词要求两侧不是字母（避免 guide、fluid 里的 uid）；不用单字"群"（会误伤"群像"这类常见标题）。
 ACCOUNT_HINT = re.compile(
-    r"qq|头像|頭像|微信|wechat|weixin|群|账号|帳號|帐号|avatar|uid", re.IGNORECASE
+    r"(?<![a-z])(?:qq|uid|avatar|wechat|weixin)(?![a-z])|头像|頭像|微信|群号|群聊|账号|帳號|帐号",
+    re.IGNORECASE,
 )
 
 # 8 位且形如 20YYMMDD 的数字多半是日期（截图、相机文件名），不作为 Pixiv ID

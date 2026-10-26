@@ -117,6 +117,35 @@ def test_duplicates_skipped_and_source_kept(lib, tmp_path):
     assert b.exists()  # 重复的源文件不删
 
 
+def test_failed_copy_does_not_mark_duplicate(lib, tmp_path, monkeypatch):
+    """同批次两份相同内容：第一份复制失败时，第二份应该照常导入，而不是被当成重复跳过。"""
+    import artist_gallery.core.importer as imp_mod
+
+    a = make_image(tmp_path / "s" / "a.png", (5, 5, 5))
+    b = make_image(tmp_path / "s" / "b.png", (5, 5, 5))
+    real_copy = imp_mod.copy_verified
+
+    def flaky_copy(src, dst, sha):
+        if src.name == "a.png":
+            raise OSError("模拟磁盘错误")
+        real_copy(src, dst, sha)
+
+    monkeypatch.setattr(imp_mod, "copy_verified", flaky_copy)
+    report = import_files(lib, [tmp_path / "s"])
+    actions = {i.src.name: i.action for i in report.items}
+    assert actions == {"a.png": Action.ERROR, "b.png": Action.INBOX}
+    assert a.exists() and not b.exists()
+
+
+def test_cli_newer_db_version_is_clean_error(lib, capsys):
+    conn = db.connect(lib)
+    conn.execute(f"PRAGMA user_version = {db.SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+    assert main(["status", str(lib)]) == 1
+    assert "请先升级程序" in capsys.readouterr().err
+
+
 def test_duplicate_within_same_batch(lib, tmp_path):
     make_image(tmp_path / "s" / "one.png", (7, 7, 7))
     make_image(tmp_path / "s" / "two.png", (7, 7, 7))

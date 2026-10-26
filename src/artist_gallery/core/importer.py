@@ -193,9 +193,9 @@ class _Importer:
         }[rec.confidence]
         folder, stem = _target_dir_and_stem(rec, src)
         rel = self._unique_rel(folder, stem, src.suffix.lower())
-        self.seen_sha.add(sha)
         item = ImportItem(src, action, rel, rec)
         if self.dry_run:
+            self.seen_sha.add(sha)
             return item
 
         dst = self.root / rel
@@ -236,6 +236,8 @@ class _Importer:
                 raise  # Ctrl+C 等：清理完副本后照常中断
             return ImportItem(src, Action.ERROR, message=f"写入数据库失败：{e}")
 
+        # 只有真正入库成功才算"见过"：否则第一份失败时，同批次里内容相同的第二份会被误判为重复而跳过
+        self.seen_sha.add(sha)
         if self.move:
             try:
                 src.unlink()
@@ -252,7 +254,11 @@ def import_files(
     dry_run: bool = False,
     recursive: bool = True,
 ) -> ImportReport:
-    """导入图片到图库。move=False 时保留源文件；dry_run=True 时只生成计划，不改动任何东西。"""
+    """导入图片/视频到图库。
+
+    move=False 时保留源文件。dry_run=True 时只生成计划，不动任何文件、不写任何记录
+    （唯一例外：旧版图库仍会被升级数据库结构，这和打开图库时的行为一致）。
+    """
     root = root.resolve()
     if not (root / db.DB_NAME).is_file():
         raise db.NotALibraryError(f"不是图库（找不到 {db.DB_NAME}）：{root}")

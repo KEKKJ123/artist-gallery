@@ -15,6 +15,7 @@ _ACTION_LABEL = {
     Action.HINT: "收件箱(有建议)",
     Action.INBOX: "收件箱",
     Action.DUP: "重复跳过",
+    Action.SKIP: "暂不支持",
     Action.ERROR: "失败",
 }
 
@@ -51,12 +52,13 @@ def _cmd_import(args: argparse.Namespace) -> int:
             line = f"[{_ACTION_LABEL[it.action]}] {it.src.name} -> {it.rel_path}"
         elif it.action is Action.HINT:
             r = it.recognition
-            line = f"[{_ACTION_LABEL[it.action]}] {it.src.name}  可能是 {r.platform}:{r.post_id}"
-        elif it.action in (Action.DUP, Action.ERROR) or args.verbose:
+            guess = f"{r.platform}:{r.post_id}" if r.post_id else f"{r.platform}（需手动补链接）"
+            line = f"[{_ACTION_LABEL[it.action]}] {it.src.name}  可能是 {guess}"
+        elif it.action in (Action.DUP, Action.SKIP, Action.ERROR) or args.verbose:
             line = f"[{_ACTION_LABEL[it.action]}] {it.src.name}  {it.message}"
         else:
             continue
-        if it.message and it.action not in (Action.DUP, Action.ERROR):
+        if it.message and it.action not in (Action.DUP, Action.SKIP, Action.ERROR):
             line += f"  ({it.message})"
         print(line)
 

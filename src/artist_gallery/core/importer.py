@@ -17,6 +17,8 @@ from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
 
 IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
+# 视频暂不导入（设计文档第 10 节：未来构想），但要在报告里列出来，不能悄悄忽略
+VIDEO_EXTS = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"})
 INBOX = PurePosixPath("images/_inbox")
 
 
@@ -25,6 +27,7 @@ class Action(StrEnum):
     HINT = "hint"  # 中置信，进收件箱并附建议
     INBOX = "inbox"  # 未识别，进收件箱
     DUP = "dup"  # 图库里已有相同文件，跳过（源文件不动）
+    SKIP = "skip"  # 暂不支持的媒体类型（视频），源文件不动
     ERROR = "error"
 
 
@@ -46,14 +49,15 @@ class ImportReport:
         return Counter(i.action for i in self.items)
 
 
-def iter_image_files(paths: Iterable[Path], recursive: bool = True) -> list[Path]:
-    """展开参数里的文件和文件夹，只保留图片扩展名，按路径排序。"""
+def iter_media_files(paths: Iterable[Path], recursive: bool = True) -> list[Path]:
+    """展开参数里的文件和文件夹，保留图片和视频扩展名，按路径排序。"""
+    exts = IMAGE_EXTS | VIDEO_EXTS
     found: set[Path] = set()
     for p in paths:
         if p.is_dir():
             it = p.rglob("*") if recursive else p.glob("*")
-            found.update(f for f in it if f.is_file() and f.suffix.lower() in IMAGE_EXTS)
-        elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+            found.update(f for f in it if f.is_file() and f.suffix.lower() in exts)
+        elif p.is_file() and p.suffix.lower() in exts:
             found.add(p)
     return sorted(found)
 
@@ -119,6 +123,8 @@ class _Importer:
         return work_id
 
     def import_one(self, src: Path) -> ImportItem:
+        if src.suffix.lower() in VIDEO_EXTS:
+            return ImportItem(src, Action.SKIP, message="视频暂不支持，已跳过")
         try:
             sha = sha256_file(src)
         except OSError as e:
@@ -211,7 +217,7 @@ def import_files(
         if s == root or s.is_relative_to(root):
             raise ValueError(f"不能从图库内部导入：{s}")
 
-    files = iter_image_files(sources, recursive)
+    files = iter_media_files(sources, recursive)
     report = ImportReport(dry_run=dry_run)
     imp = _Importer(root, move=move, dry_run=dry_run)
     try:

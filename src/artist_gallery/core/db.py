@@ -21,6 +21,15 @@ MIGRATIONS: list[str] = [
     UPDATE platform SET file_regex = '(?<![0-9A-Za-z])x_(?P<post_id>\d{15,20})_p(?P<page>\d+)'
       WHERE id = 'x';
     """,
+    # v2 → v3（2026-10-26）：内置 Zerochan（文件名形如 `Vigna.full.3017022`、`Vigna.600.3004963`）
+    r"""
+    INSERT OR IGNORE INTO platform (id, name, post_url, user_url, url_regex, file_regex) VALUES
+      ('zerochan', 'Zerochan',
+       'https://www.zerochan.net/{post_id}',
+       NULL,
+       'zerochan\.net/(?P<post_id>\d+)',
+       '\.(?:full|\d{3,4})\.(?P<post_id>\d{5,9})$');
+    """,
 ]
 
 SCHEMA_VERSION = 1 + len(MIGRATIONS)

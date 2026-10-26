@@ -27,6 +27,8 @@ class Rule:
     platform: str
     pattern: re.Pattern[str]
     page_offset: int = 0  # 文件名里的页码从 1 开始时设为 -1
+    # True：文件名含"账号类"字样时降为中置信（见 recognize.ACCOUNT_HINT）
+    guarded: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,8 +41,8 @@ class PlatformDef:
     file_rules: tuple[Rule, ...] = ()
 
 
-def _rule(platform: str, pattern: str, page_offset: int = 0) -> Rule:
-    return Rule(platform, re.compile(pattern, _A), page_offset)
+def _rule(platform: str, pattern: str, page_offset: int = 0, *, guarded: bool = False) -> Rule:
+    return Rule(platform, re.compile(pattern, _A), page_offset, guarded)
 
 
 BUILTIN_PLATFORMS: tuple[PlatformDef, ...] = (
@@ -53,8 +55,8 @@ BUILTIN_PLATFORMS: tuple[PlatformDef, ...] = (
         (
             # 多页 / 原图：标题_ID_pN（也覆盖 ID_pN_master1200 预览图）
             _rule("pixiv", r"(?<![0-9])(?P<post_id>[0-9]{6,10})_p(?P<page>[0-9]+)"),
-            # 单页另存：标题_ID（ID 在末尾）
-            _rule("pixiv", rf"_(?P<post_id>{PIXIV_ID})$"),
+            # 单页另存：标题_ID（ID 在末尾）。8–9 位数字和 QQ 号撞车，所以加防护
+            _rule("pixiv", rf"_(?P<post_id>{PIXIV_ID})$", guarded=True),
         ),
     ),
     PlatformDef(

@@ -65,6 +65,12 @@ MEDIUM: tuple[Rule, ...] = (
 # 只能提示"大概来自 X"，post_id 留空，等用户贴链接。要求大小写字母混合，减少误判。
 X_MEDIA_KEY = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])[A-Za-z0-9_-]{15}$", _A)
 
+# 文件名里出现这些字样时，末尾的 8–9 位数字更可能是 QQ 号 / 账号，而不是 Pixiv ID：
+# 带 guarded 标记的规则命中后降为中置信，进收件箱等确认。不区分大小写。
+ACCOUNT_HINT = re.compile(
+    r"qq|头像|頭像|微信|wechat|weixin|群|账号|帳號|帐号|avatar|uid", re.IGNORECASE
+)
+
 # 8 位且形如 20YYMMDD 的数字多半是日期（截图、相机文件名），不作为 Pixiv ID
 _DATE_LIKE = re.compile(r"^20[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])$")
 
@@ -110,7 +116,8 @@ def recognize(stem: str, rules: RuleSet) -> Recognition:
     for rule in rules.high:
         m = rule.pattern.search(stem)
         if m and _plausible(rule, m["post_id"]):
-            return _from_match(rule, m, Confidence.HIGH)
+            downgrade = rule.guarded and ACCOUNT_HINT.search(stem[: m.start()])
+            return _from_match(rule, m, Confidence.MEDIUM if downgrade else Confidence.HIGH)
 
     for rule in MEDIUM:
         if rule.platform not in rules.platforms:

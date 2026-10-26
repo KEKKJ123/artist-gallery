@@ -1,0 +1,131 @@
+# 画师图库 设计文档 v0.2（2026-10-26）
+
+> v0.2 变更：新增 2.1 文件管理策略（默认移动+重命名、程序内移动、批量操作、撤销）；数据模型新增 op_log 表。
+
+## 1. 目标与范围
+- 本地管理画师作品图片；核心维度：**画师 / 来源（平台+作品ID）/ tag**。
+- 起点：明日方舟·红豆；扩展到任意角色、事物 → 全部靠 tag 命名空间实现，不为"角色"单独建模。
+- 规模：现有 ~200 张，设计目标 1 万张以内无压力（SQLite 足够）。
+- 平台：Pixiv、X 一等支持；小众平台通过"平台配置表"自定义，不改代码。
+- 设备：Windows 主力；Android 完整可用（Termux 跑同一套程序）+ 局域网访问。
+
+## 2. 总体架构
+```
+图库根目录/                 ← 整个文件夹可直接复制/同步到手机
+├─ library.db              ← SQLite，所有路径存"相对于根目录"
+├─ images/
+│   ├─ pixiv/123456789_p0.png
+│   ├─ x/1849000000000000000_p1.jpg
+│   ├─ <自定义平台>/...
+│   └─ _inbox/原始文件名.jpg   ← 来源未知，待整理
+└─ .cache/thumbs/          ← 缩略图，可随时重建，不必同步
+```
+- 程序：Python 3.12 + FastAPI + SQLite + Pillow；下载器内置 gallery-dl（作为 Python 库调用）。
+- 前端：Vue 3 + Vite，构建成静态文件由 FastAPI 托管 → 手机端不需要 Node。
+- 运行方式：
+  - PC：`python -m gallery serve <图库目录>`，浏览器打开 localhost。
+  - 手机离线：Termux 里 `pip install` 同一个包，指向手机上的图库目录，浏览器打开 localhost。
+  - 手机在线：访问 PC 的局域网地址。
+- 文件名自描述：来源确定后文件被重命名为 `{platform}/{post_id}_p{n}.{ext}`。即使 db 丢了，也能从文件名重建来源。
+
+### 2.1 文件管理策略（v0.2 新增）
+- **默认**：导入 = 移动进图库 + 按模板重命名。原位置不留副本。
+- **存放模板可配置**：默认 `images/{platform}/{post_id}_p{page}.{ext}`；可改成例如 `images/{character}/{artist}/{post_id}_p{page}.{ext}`。模板只决定"新文件放哪"，不强制已有文件。
+- **程序内移动**：任意图片/作品可以被移到图库内的任意子文件夹（如 `images/精选/`），db 同步更新 `rel_path`。文件名中的来源部分保持不变，只换目录。
+- **批量操作**（所有页面的多选都支持）：
+  - 批量移动到文件夹 / 新建文件夹
+  - 批量按模板重新整理（例：把模板改了以后，一键把全库重排）
+  - 批量改 tag（加 / 删 / 替换）、批量改画师、批量合并 / 拆分作品
+  - 每次批量文件操作先显示"预览：A → B"清单，确认后执行；同时写一条操作日志，支持**撤销最近一次**。
+- **外部改动**：如果在资源管理器里手动挪了文件，下次启动或手动"重新扫描"时按 sha256 找回，更新路径；找不到的标为"丢失"，不自动删除记录。
+- **安全**：移动采用"先复制 → 校验 hash → 再删原文件"，中途出错不丢图。
+
+## 3. 数据模型
+```sql
+CREATE TABLE platform (            -- 平台配置，小众平台在这里加
+  id TEXT PRIMARY KEY,             -- 'pixiv' / 'x' / 'lofter' ...
+  name TEXT,
+  post_url  TEXT,                  -- 'https://www.pixiv.net/artworks/{post_id}'
+  user_url  TEXT,                  -- 'https://www.pixiv.net/users/{uid}'
+  url_regex TEXT,                  -- 从粘贴的链接里解析 post_id / handle
+  file_regex TEXT                  -- 从文件名里解析 post_id / page
+);
+CREATE TABLE artist  (id INTEGER PRIMARY KEY, name TEXT NOT NULL, note TEXT);
+CREATE TABLE account (
+  id INTEGER PRIMARY KEY, artist_id INT REFERENCES artist,
+  platform TEXT REFERENCES platform, uid TEXT, handle TEXT,
+  UNIQUE(platform, uid)            -- X 用数字 uid 做主键，handle 会变
+);
+CREATE TABLE work (id INTEGER PRIMARY KEY, artist_id INT REFERENCES artist,
+                   title TEXT, posted_at TEXT, added_at TEXT);
+CREATE TABLE source (
+  id INTEGER PRIMARY KEY, work_id INT REFERENCES work,
+  platform TEXT REFERENCES platform, post_id TEXT,
+  UNIQUE(platform, post_id)        -- 同一作品可有多个来源（Pixiv+X 双发）
+);
+CREATE TABLE image (
+  id INTEGER PRIMARY KEY, work_id INT REFERENCES work,  -- NULL = 收件箱
+  rel_path TEXT UNIQUE, sha256 TEXT UNIQUE, page INT,
+  width INT, height INT, phash TEXT, added_at TEXT
+);
+CREATE TABLE tag (id INTEGER PRIMARY KEY, ns TEXT DEFAULT '', name TEXT,
+                  UNIQUE(ns, name));
+CREATE TABLE tag_alias (alias TEXT PRIMARY KEY, tag_id INT REFERENCES tag);
+CREATE TABLE work_tag  (work_id INT, tag_id INT, PRIMARY KEY(work_id, tag_id));
+CREATE TABLE op_log (              -- 批量操作日志，用于撤销
+  id INTEGER PRIMARY KEY, batch_id TEXT, at TEXT,
+  kind TEXT,                       -- 'move' / 'tag_add' / 'tag_del' / 'merge' ...
+  payload TEXT                     -- JSON：{image_id, from, to} 等
+);
+```
+tag 命名空间约定：`character:红豆`、`series:明日方舟`、`meta:R-18` 等，不带前缀的就是普通 tag。
+别名：`アズリウス`、`Adnachiel`…… 的写法统一归到 `character:红豆`（具体别名录入时再定）。
+
+## 4. 导入与识别
+文件名规则按顺序匹配，命中就填来源：
+| 规则 | 示例 | 置信度 |
+|---|---|---|
+| `(\d{6,10})_p(\d+)` | `123456789_p0.png`、`标题_123456789_p2.jpg` | 高，自动填 |
+| `x_(\d{15,20})_p(\d+)` / gallery-dl 格式 | `1849..._1.jpg` | 高，自动填 |
+| 文件名里单独一串 7–10 位数字 | `标题123456789.png` | 中，标为"待确认" |
+| X 网页直接存的图（如 `GxAbC12xyz.jpg`） | 只有 media key，无法反推推文 | 进收件箱，手动贴链接 |
+- 用 sha256 去重；重复导入直接跳过。
+- 自定义平台：在 platform 表里写 `file_regex`，就能参与识别。
+
+## 5. 手动整理（重点：批量、少点鼠标）
+"收件箱"页面：
+- 缩略图网格，Ctrl/Shift 多选 + 框选；按导入时间或相似度排序，同一作品的几页会挨在一起。
+- 右侧面板对**所有选中的图**一次性操作：
+  - **粘贴链接**：贴 `https://x.com/xxx/status/123`，自动识别平台、作品ID、账号 handle；账号没见过就弹出"绑定到哪个画师"（可模糊搜索，或新建）。
+  - **tag 输入框**：自动补全 + 别名；"最近使用"快捷按钮；可设"默认 tag"（如 `character:红豆`），之后新导入的图自动带上。
+  - 选中的多张图 = 同一作品的多页 → 一个按钮"合并为一个作品"，页码按选择顺序排。
+- 全键盘操作：`Ctrl+V` 贴链接、`T` 聚焦 tag 框、`Enter` 确认并跳到下一组。
+- 手机：同一界面做成响应式，长按进入多选。
+
+## 6. 下载器
+- 入口：界面里贴链接 / 批量贴一堆链接 → 后台调用 gallery-dl → 按 `{platform}/{post_id}_p{n}` 存入 → 元数据（画师 uid、handle、原始 tag、发布时间）直接写库。
+- 登录态：
+  - X：需要浏览器 cookies（`auth_token`、`ct0`），导出为 cookies.txt。建议用小号，频繁抓取有被限流/封号的风险。
+  - Pixiv：gallery-dl 的 Pixiv 提取器需要 refresh token（`gallery-dl oauth:pixiv` 获取一次）。
+- 原则：下载器只是录入的捷径。X/Pixiv 改接口导致失效时，手动录入流程必须仍然完整可用。
+- 后期：Tampermonkey 用户脚本，在 Pixiv/X 页面加"存入图库"按钮，把当前链接 POST 给本地服务。
+
+## 7. 浏览与检索
+- 搜索语法：`character:红豆 -meta:R-18 artist:xxx platform:pixiv`（与 / 非 / 按画师 / 按平台）。
+- 画师页：所有平台账号（链接由模板拼出）、作品墙、该画师下 tag 的统计。
+- 作品详情：所有来源链接、所有页、tag。
+
+## 8. 同步与备份
+- 手机和 PC 之间同步整个图库目录（Syncthing / 手动复制均可），`.cache/` 排除。
+- **限制**：SQLite 不能两边同时改。约定一端为主（PC），手机以浏览为主；或两边改完后用"合并导入"（以 sha256 + source 为键合并）——放在后期做。
+- `export` 命令：把 db 导出为 JSON，可以放进 git 做版本备份。
+
+## 9. 里程碑
+| 阶段 | 内容 | 完成标准 |
+|---|---|---|
+| M0 | 建库、CLI 导入（hash、文件名识别、收件箱） | 现有 200 张入库，Pixiv 的大部分自动识别 |
+| M1 | 后端 API + 收件箱批量整理界面 | 能在 10 分钟内整理完 50 张 X 图 |
+| M2 | 浏览、搜索、画师页、作品页 | 日常可用 |
+| M3 | 内置下载器（gallery-dl） | 贴链接即入库，带元数据 |
+| M4 | Termux 部署说明 + 手机端界面适配 | 手机离线可用 |
+| M5 | pHash 相似图、用户脚本、双端合并 | 锦上添花 |

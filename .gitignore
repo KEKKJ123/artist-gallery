@@ -1,0 +1,40 @@
+# --- 图库数据：绝不进仓库 ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+images/
+library/
+.cache/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+!docs/assets/**
+
+# --- 凭据 ---
+cookies*.txt
+*.token
+.env
+gallery-dl.conf
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# --- 前端 ---
+node_modules/
+frontend/dist/
+
+# --- 编辑器 / 系统 ---
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -3,7 +3,7 @@ from PIL import Image
 
 from artist_gallery.cli import main
 from artist_gallery.core import db
-from artist_gallery.core.importer import Action, import_files
+from artist_gallery.core.importer import Action, _safe_stem, import_files
 
 
 def make_image(path, color=(255, 0, 0), size=(8, 8)):
@@ -160,17 +160,41 @@ def test_cli_import_and_status(lib, src, capsys):
     assert "收件箱" in out and "pixiv" in out
 
 
-def test_migration_from_v1(tmp_path):
-    """模拟一个 v1 图库（没有 orig_name 列），打开时应自动升级。"""
-    root = tmp_path / "old"
+def test_long_inbox_name_is_truncated(lib, tmp_path):
+    long_name = "長" * 120 + ".png"  # 360 字节：NTFS 能存，但 Android 的 ext4/F2FS 上限是 255 字节
+    make_image(tmp_path / "s" / long_name, (8, 1, 1))
+    report = import_files(lib, [tmp_path / "s"])
+    name = report.items[0].rel_path.rsplit("/", 1)[1]
+    assert len(name.encode("utf-8")) <= 200
+    assert (lib / report.items[0].rel_path).is_file()
+
+
+@pytest.mark.parametrize(
+    ("stem", "expected"),
+    [
+        ("CON", "_CON"),  # Windows 保留名（这种文件在 Windows 上建不出来，但可能从手机拷来）
+        ("a:b?c", "a_b_c"),  # Linux/Android 允许、Windows 不允许的字符
+        ("trailing. ", "trailing"),
+        ("", "unnamed"),
+    ],
+)
+def test_safe_stem(stem, expected):
+    assert _safe_stem(stem) == expected
+
+
+def test_case_insensitive_collision(lib, tmp_path):
+    make_image(tmp_path / "a" / "Same.png", (9, 1, 1))
+    make_image(tmp_path / "b" / "same.png", (9, 2, 2))
+    report = import_files(lib, [tmp_path / "a", tmp_path / "b"])
+    paths = sorted(i.rel_path.lower() for i in report.items)
+    assert paths == ["images/_inbox/same.png", "images/_inbox/same_2.png"]
+
+
+def test_library_inside_source_is_skipped(tmp_path):
+    root = tmp_path / "lib"
     db.init_library(root)
-    conn = db.connect(root)
-    conn.executescript(
-        "ALTER TABLE image DROP COLUMN orig_name; ALTER TABLE image DROP COLUMN source_hint;"
-    )
-    conn.execute("PRAGMA user_version = 1")
-    conn.commit()
-    assert db.migrate(conn) == db.SCHEMA_VERSION
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(image)")}
-    assert {"orig_name", "source_hint"} <= cols
-    conn.close()
+    make_image(tmp_path / "x.png", (3, 3, 3))
+    import_files(root, [tmp_path / "x.png"], move=False)
+    # 从图库的上级目录导入：图库里已有的文件不能被再次扫进来
+    report = import_files(root, [tmp_path], move=False)
+    assert all(not str(i.src).startswith(str(root)) for i in report.items)

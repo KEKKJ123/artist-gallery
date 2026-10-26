@@ -83,15 +83,4 @@ CREATE TABLE op_log (
 );
 CREATE INDEX idx_op_log_batch ON op_log(batch_id);
 
--- 内置平台
-INSERT INTO platform (id, name, post_url, user_url, url_regex, file_regex) VALUES
-  ('pixiv', 'Pixiv',
-   'https://www.pixiv.net/artworks/{post_id}',
-   'https://www.pixiv.net/users/{uid}',
-   'pixiv\.net/(?:\w+/)?artworks/(?P<post_id>\d+)',
-   '(?P<post_id>\d{6,10})_p(?P<page>\d+)'),
-  ('x', 'X',
-   'https://x.com/i/status/{post_id}',
-   'https://x.com/i/user/{uid}',
-   '(?:x|twitter)\.com/(?P<handle>\w+)/status/(?P<post_id>\d+)',
-   'x_(?P<post_id>\d{15,20})_p(?P<page>\d+)');
+-- 内置平台不在这里插入：由 db.sync_builtin_platforms() 按 platforms.py 写入。

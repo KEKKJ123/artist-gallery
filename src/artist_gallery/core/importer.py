@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import uuid
 from collections import Counter
 from collections.abc import Iterable
@@ -51,6 +53,12 @@ class ImportReport:
         return Counter(i.action for i in self.items)
 
 
+def _within(path: Path, base: Path) -> bool:
+    """path 是否等于 base 或在其之下。按平台规则比较大小写（Windows 不区分）。"""
+    p, b = os.path.normcase(path), os.path.normcase(base)
+    return p == b or p.startswith(b.rstrip(os.sep) + os.sep)
+
+
 def _hidden(path: Path, base: Path) -> bool:
     """base 之下的任何一级以 '.' 开头即视为隐藏（如 Android 的 DCIM/.thumbnails、.trash）。"""
     return any(part.startswith(".") for part in path.relative_to(base).parts)
@@ -80,6 +88,23 @@ def _safe_id(s: str) -> str:
     return "".join(c if c.isascii() and (c.isalnum() or c == "-") else "-" for c in s)
 
 
+# Windows / Android(FAT/exFAT/FUSE) 都不允许的字符，以及 Windows 的保留名
+_BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])$", re.IGNORECASE)
+_MAX_STEM_BYTES = 150  # 多数文件系统单个文件名上限 255 字节，留出后缀和 _N 的余量
+
+
+def _safe_stem(stem: str) -> str:
+    """收件箱里保留原文件名，但要保证在 Windows 和 Android 上都合法、不过长。"""
+    s = _BAD_CHARS.sub("_", stem).rstrip(" .")
+    if _RESERVED.match(s):
+        s = f"_{s}"
+    raw = s.encode("utf-8")
+    if len(raw) > _MAX_STEM_BYTES:
+        s = raw[:_MAX_STEM_BYTES].decode("utf-8", "ignore").rstrip(" .")
+    return s or "unnamed"
+
+
 def _target_dir_and_stem(rec: Recognition, src: Path) -> tuple[PurePosixPath, str]:
     if rec.confidence is Confidence.HIGH:
         assert rec.platform and rec.post_id is not None
@@ -87,7 +112,7 @@ def _target_dir_and_stem(rec: Recognition, src: Path) -> tuple[PurePosixPath, st
             PurePosixPath("images", rec.platform),
             f"{rec.platform}_{_safe_id(rec.post_id)}_p{rec.page or 0}",
         )
-    return INBOX, src.stem
+    return INBOX, _safe_stem(src.stem)
 
 
 class _Importer:
@@ -95,21 +120,25 @@ class _Importer:
         self.root = root
         self.move = move
         self.dry_run = dry_run
-        self.conn = db.connect(root)
-        db.migrate(self.conn)
+        self.conn = db.open_library(root)
         self.rules: RuleSet = load_rules(self.conn)
         self.batch_id = uuid.uuid4().hex
-        self.reserved: set[str] = set()  # 本批次已占用的 rel_path（dry-run 时尤其需要）
+        # 本批次已占用的 rel_path（小写）。dry-run 时文件没真的落盘，只能靠它防重名。
+        self.reserved: set[str] = set()
         self.seen_sha: set[str] = set()
 
     def close(self) -> None:
         self.conn.close()
 
     def _taken(self, rel: str) -> bool:
-        if rel in self.reserved or (self.root / rel).exists():
+        # 一律按"不区分大小写"判断：Windows 和 Android 共享存储都不区分，
+        # 否则 A.jpg 和 a.jpg 在 Linux 上各占一行、复制到手机就互相覆盖。
+        if rel.lower() in self.reserved or (self.root / rel).exists():
             return True
         return (
-            self.conn.execute("SELECT 1 FROM image WHERE rel_path = ?", (rel,)).fetchone()
+            self.conn.execute(
+                "SELECT 1 FROM image WHERE rel_path = ? COLLATE NOCASE", (rel,)
+            ).fetchone()
             is not None
         )
 
@@ -119,7 +148,7 @@ class _Importer:
         while self._taken(rel):
             n += 1
             rel = str(folder / f"{stem}_{n}{ext}")
-        self.reserved.add(rel)
+        self.reserved.add(rel.lower())
         return rel
 
     def _work_for(self, platform: str, post_id: str) -> int:
@@ -201,8 +230,10 @@ class _Importer:
                         ),
                     ),
                 )
-        except Exception as e:
+        except BaseException as e:
             dst.unlink(missing_ok=True)  # 删的是刚复制进来的副本，源文件还在
+            if not isinstance(e, Exception):
+                raise  # Ctrl+C 等：清理完副本后照常中断
             return ImportItem(src, Action.ERROR, message=f"写入数据库失败：{e}")
 
         if self.move:
@@ -223,14 +254,15 @@ def import_files(
 ) -> ImportReport:
     """导入图片到图库。move=False 时保留源文件；dry_run=True 时只生成计划，不改动任何东西。"""
     root = root.resolve()
-    if not (root / db.DB_NAME).exists():
-        raise FileNotFoundError(f"不是图库（找不到 {db.DB_NAME}）：{root}")
+    if not (root / db.DB_NAME).is_file():
+        raise db.NotALibraryError(f"不是图库（找不到 {db.DB_NAME}）：{root}")
     sources = [Path(s).resolve() for s in sources]
     for s in sources:
-        if s == root or s.is_relative_to(root):
+        if _within(s, root):
             raise ValueError(f"不能从图库内部导入：{s}")
 
-    files = iter_media_files(sources, recursive)
+    # 图库在源文件夹里面时（如从 E:\ 导入、图库在 E:\lib），扫描要绕开图库本身
+    files = [f for f in iter_media_files(sources, recursive) if not _within(f, root)]
     report = ImportReport(dry_run=dry_run)
     imp = _Importer(root, move=move, dry_run=dry_run)
     try:

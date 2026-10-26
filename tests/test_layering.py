@@ -1,4 +1,4 @@
-"""守护 AGENTS.md 规则 7：core/ 不得依赖 Web 层或 Web 框架。"""
+"""守护 AGENTS.md "分层"规则：core/ 不得依赖 Web 层或 Web 框架。"""
 
 import ast
 from pathlib import Path

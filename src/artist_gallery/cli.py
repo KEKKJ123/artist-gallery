@@ -79,12 +79,12 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     root = Path(args.library)
-    if not (root / db.DB_NAME).exists():
-        print(f"错误：不是图库：{root}", file=sys.stderr)
-        return 1
-    conn = db.connect(root)
     try:
-        db.migrate(conn)
+        conn = db.open_library(root)
+    except db.NotALibraryError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    try:
 
         def count(table: str, where: str = "1") -> int:
             return conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}").fetchone()[0]

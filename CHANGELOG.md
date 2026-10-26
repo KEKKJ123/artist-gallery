@@ -3,7 +3,15 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
-### 新增
+### 新增（M0 导入）
+- `artist-gallery import`：扫描文件/文件夹 → sha256 去重 → 文件名识别来源 → 复制校验后移入图库（`--copy` 保留源文件，`-n` 预演）。
+- 识别规则（`core/recognize.py`）：本程序格式、Pixiv `_p` 格式、gallery-dl X 格式自动归档；孤立数字作为中置信建议进收件箱。
+- `artist-gallery status`：图库统计。
+- 安全文件复制 `core/fileops.py`：写入 `.part` 临时文件，校验 hash 后再落位。
+- 数据库迁移 v1 → v2：`image` 新增 `orig_name`、`source_hint`；内置文件名正则加数字边界。
+- 测试增至 37 个（识别规则、导入、去重、重名、损坏文件、迁移）。
+
+### 新增（基础架构）
 - 仓库基础架构：`AGENTS.md`、`pyproject.toml`、`CHANGELOG.md`、`docs/decisions/`。
 - Python 包骨架 `artist_gallery`：数据库结构 v1（`schema.sql`）、迁移机制（`PRAGMA user_version`）、CLI `init` 命令。
 - 内置平台 Pixiv、X 的链接 / 文件名解析正则。

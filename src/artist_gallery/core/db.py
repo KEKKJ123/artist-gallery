@@ -10,7 +10,18 @@ DB_NAME = "library.db"
 
 # 结构变更：在末尾追加 SQL 字符串，不改已有条目。
 # 第 i 条（从 0 开始）把 user_version 从 i+1 升到 i+2；schema.sql 本身是版本 1。
-MIGRATIONS: list[str] = []
+MIGRATIONS: list[str] = [
+    # v1 → v2（2026-10-26）：记录原始文件名和中置信来源建议；
+    # 给内置文件名正则加数字边界，避免 X 的长 ID 末尾被误认成 Pixiv ID。
+    r"""
+    ALTER TABLE image ADD COLUMN orig_name TEXT;
+    ALTER TABLE image ADD COLUMN source_hint TEXT;  -- JSON: {platform, post_id, page}
+    UPDATE platform SET file_regex = '(?<!\d)(?P<post_id>\d{6,10})_p(?P<page>\d+)'
+      WHERE id = 'pixiv';
+    UPDATE platform SET file_regex = '(?<![0-9A-Za-z])x_(?P<post_id>\d{15,20})_p(?P<page>\d+)'
+      WHERE id = 'x';
+    """,
+]
 
 SCHEMA_VERSION = 1 + len(MIGRATIONS)
 

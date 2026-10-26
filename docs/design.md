@@ -1,5 +1,6 @@
-# 画师图库 设计文档 v0.3（2026-10-26）
+# 画师图库 设计文档 v0.4（2026-10-26）
 
+> v0.4 变更：Android 默认图库改放 App 私有目录、零存储权限，Photo Picker/SAF 导入；共享文件夹为可选高级项。见 ADR 0004。
 > v0.3 变更：Web 框架由 FastAPI 改为 Starlette；Android 端改为 APK 发布（Briefcase + Chaquopy，CI 编译），Termux 保留为开发者路径。见 ADR 0003。
 > v0.2 变更：新增 2.1 文件管理策略（默认移动+重命名、程序内移动、批量操作、撤销）；数据模型新增 op_log 表。
 
@@ -29,7 +30,11 @@
   - Android（普通用户）：安装 APK。App 启动时在后台线程运行同一个 server，全屏 WebView 加载 localhost。APK 由 Briefcase 打包、GitHub Actions 编译。
   - Android（开发者）：Termux 里 `pip install` 同一个包，浏览器打开 localhost。
   - 手机在线：访问 PC 的局域网地址。
-- Android 存储：图库放共享存储（如 `/sdcard/ArtistGallery`），需要"所有文件访问权限"；只做侧载分发，不上 Google Play。
+- Android 存储（ADR 0004）：
+  - 默认图库放 App 私有目录 `Android/data/<包名>/files/`，**不申请任何存储权限**。
+  - 导入图片用系统 Photo Picker（无 Play 服务时回退 SAF），只拿到用户选中的文件；导入/导出整个图库用 SAF 选文件夹。
+  - 高级选项（默认关闭）：图库放共享文件夹，此时才申请存储权限（≤10：WRITE_EXTERNAL_STORAGE；≥11：所有文件访问）。
+  - 只做侧载分发，不上 Google Play。
 - 文件名自描述：来源确定后文件被重命名为 `{platform}/{post_id}_p{n}.{ext}`。即使 db 丢了，也能从文件名重建来源。
 
 ### 2.1 文件管理策略（v0.2 新增）
@@ -120,7 +125,7 @@ tag 命名空间约定：`character:红豆`、`series:明日方舟`、`meta:R-18
 - 作品详情：所有来源链接、所有页、tag。
 
 ## 8. 同步与备份
-- 手机和 PC 之间同步整个图库目录（Syncthing / 手动复制均可），`.cache/` 排除。
+- 手机和 PC 之间同步整个图库目录，`.cache/` 排除。APK 默认（私有目录）下用 App 内"导入/导出图库"；开启共享文件夹高级选项后可用 Syncthing / 手动复制。
 - **限制**：SQLite 不能两边同时改。约定一端为主（PC），手机以浏览为主；或两边改完后用"合并导入"（以 sha256 + source 为键合并）——放在后期做。
 - `export` 命令：把 db 导出为 JSON，可以放进 git 做版本备份。
 

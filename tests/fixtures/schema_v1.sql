@@ -1,3 +1,4 @@
+-- 测试夹具：v1 版 schema.sql 原样（来自 commit 5e1d3af），用于验证从真实 v1 图库迁移。不要修改。
 -- 数据库结构 v1，对应 docs/design.md 第 3 节。
 -- 只在新建图库时执行；之后的结构变更写进 db.py 的 MIGRATIONS。
 

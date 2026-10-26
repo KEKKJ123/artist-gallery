@@ -1,5 +1,6 @@
-# 画师图库 设计文档 v0.2（2026-10-26）
+# 画师图库 设计文档 v0.3（2026-10-26）
 
+> v0.3 变更：Web 框架由 FastAPI 改为 Starlette；Android 端改为 APK 发布（Briefcase + Chaquopy，CI 编译），Termux 保留为开发者路径。见 ADR 0003。
 > v0.2 变更：新增 2.1 文件管理策略（默认移动+重命名、程序内移动、批量操作、撤销）；数据模型新增 op_log 表。
 
 ## 1. 目标与范围
@@ -7,7 +8,7 @@
 - 起点：明日方舟·红豆；扩展到任意角色、事物 → 全部靠 tag 命名空间实现，不为"角色"单独建模。
 - 规模：现有 ~200 张，设计目标 1 万张以内无压力（SQLite 足够）。
 - 平台：Pixiv、X 一等支持；小众平台通过"平台配置表"自定义，不改代码。
-- 设备：Windows 主力；Android 完整可用（Termux 跑同一套程序）+ 局域网访问。
+- 设备：Windows 主力；Android 完整可用（APK 安装即用，Termux 作为开发者路径）+ 局域网访问。
 
 ## 2. 总体架构
 ```
@@ -20,12 +21,15 @@
 │   └─ _inbox/原始文件名.jpg   ← 来源未知，待整理
 └─ .cache/thumbs/          ← 缩略图，可随时重建，不必同步
 ```
-- 程序：Python 3.12 + FastAPI + SQLite + Pillow；下载器内置 gallery-dl（作为 Python 库调用）。
-- 前端：Vue 3 + Vite，构建成静态文件由 FastAPI 托管 → 手机端不需要 Node。
+- 程序：Python 3.12 + Starlette/uvicorn + SQLite + Pillow；下载器内置 gallery-dl（作为 Python 库调用）。
+  - 依赖约束：运行时依赖必须是纯 Python，或在 Chaquopy 包仓库中有现成包（ADR 0003）。
+- 代码分层：`core/`（纯逻辑）→ `server/`（Starlette API + 静态文件）→ `frontend/`（Vue 3 + Vite 构建的静态页面）。
 - 运行方式：
-  - PC：`python -m gallery serve <图库目录>`，浏览器打开 localhost。
-  - 手机离线：Termux 里 `pip install` 同一个包，指向手机上的图库目录，浏览器打开 localhost。
+  - PC：`python -m artist_gallery serve <图库目录>`，浏览器打开 localhost。
+  - Android（普通用户）：安装 APK。App 启动时在后台线程运行同一个 server，全屏 WebView 加载 localhost。APK 由 Briefcase 打包、GitHub Actions 编译。
+  - Android（开发者）：Termux 里 `pip install` 同一个包，浏览器打开 localhost。
   - 手机在线：访问 PC 的局域网地址。
+- Android 存储：图库放共享存储（如 `/sdcard/ArtistGallery`），需要"所有文件访问权限"；只做侧载分发，不上 Google Play。
 - 文件名自描述：来源确定后文件被重命名为 `{platform}/{post_id}_p{n}.{ext}`。即使 db 丢了，也能从文件名重建来源。
 
 ### 2.1 文件管理策略（v0.2 新增）
@@ -124,8 +128,8 @@ tag 命名空间约定：`character:红豆`、`series:明日方舟`、`meta:R-18
 | 阶段 | 内容 | 完成标准 |
 |---|---|---|
 | M0 | 建库、CLI 导入（hash、文件名识别、收件箱） | 现有 200 张入库，Pixiv 的大部分自动识别 |
-| M1 | 后端 API + 收件箱批量整理界面 | 能在 10 分钟内整理完 50 张 X 图 |
+| M1 | 后端 API（Starlette）+ 收件箱批量整理界面 | 能在 10 分钟内整理完 50 张 X 图 |
 | M2 | 浏览、搜索、画师页、作品页 | 日常可用 |
 | M3 | 内置下载器（gallery-dl） | 贴链接即入库，带元数据 |
-| M4 | Termux 部署说明 + 手机端界面适配 | 手机离线可用 |
+| M4 | Briefcase 打 APK + GitHub Actions 自动发布；手机端界面适配；Termux 开发者文档 | 普通用户装 APK 即可离线使用 |
 | M5 | pHash 相似图、用户脚本、双端合并 | 锦上添花 |

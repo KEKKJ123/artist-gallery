@@ -32,7 +32,7 @@ def init_library(root: Path) -> Path:
     for sub in ("images/_inbox", ".cache/thumbs"):
         (root / sub).mkdir(parents=True, exist_ok=True)
 
-    schema = resources.files("artist_gallery").joinpath("schema.sql").read_text("utf-8")
+    schema = resources.files(__package__).joinpath("schema.sql").read_text("utf-8")
     conn = connect(root)
     try:
         with conn:

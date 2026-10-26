@@ -6,7 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from artist_gallery import __version__, db
+from artist_gallery import __version__
+from artist_gallery.core import db
 
 
 def _cmd_init(args: argparse.Namespace) -> int:

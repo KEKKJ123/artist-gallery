@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from artist_gallery import db
+from artist_gallery.core import db
 
 
 def test_init_creates_layout(tmp_path):

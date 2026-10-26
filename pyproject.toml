@@ -17,8 +17,8 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
-# 后续里程碑再启用：
-# web = ["fastapi", "uvicorn"]          # M1
+# 后续里程碑再启用（运行时依赖须为纯 Python 或 Chaquopy 有现成包，见 ADR 0003）：
+# web = ["starlette", "uvicorn"]        # M1，uvicorn 不带 [standard]（避免 uvloop/httptools 原生扩展）
 # download = ["gallery-dl"]             # M3
 
 [project.scripts]
@@ -28,7 +28,7 @@ artist-gallery = "artist_gallery.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-artist_gallery = ["*.sql"]
+"artist_gallery.core" = ["*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

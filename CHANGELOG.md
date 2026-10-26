@@ -3,6 +3,19 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
+### 变更：删除源文件改为用户确认（ADR 0005）
+- `import` 只复制，不再自动删除源文件；`--copy` 参数移除。
+- 新增 `--delete-source ask|yes|no`（默认 ask：导入完成后提示 `[y/N]`，回车即不删；脚本/管道下视为不删）。
+- 新增 `core.importer.delete_sources()`：删除前再次校验图库副本与源文件的 sha256；只删本次新入库的文件。删除记入 op_log。
+
+### M0 收尾审查（2026-10-27）
+- 复制后 fsync 文件和目录再删源文件：断电时不会出现"新文件没落盘、源文件已删"。
+- 同批次重复判定只在真正入库成功后记录：第一份复制失败时，内容相同的第二份不再被误跳过。
+- QQ 号防护词收窄：英文词要求单词边界（`guide`、`fluid` 不再命中 `uid`），去掉单字"群"（避免误伤"群像"）。
+- CLI 对数据库版本过新、数据库损坏、权限错误等给出一行错误，不再抛出 traceback。
+- `status` 平台名对齐。
+- 用 188 个真实文件名做端到端测试：188 个全部入库，自动归档 62，源文件夹清空，无残留 `.part`。
+
 ### 协作
 - 新增 `CONTRIBUTING.md`：分支 + Pull Request + Squash and merge，`main` 不直接推送。
 - 新增 GitHub Actions CI：Windows / Ubuntu × Python 3.12 / 3.14，跑 ruff 和 pytest。

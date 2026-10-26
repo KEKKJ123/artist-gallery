@@ -4,7 +4,7 @@
 
 - 设计文档：[docs/design.md](docs/design.md)
 - 开发约定：[AGENTS.md](AGENTS.md)
-- 状态：M0 完成（命令行建库、导入、统计）；下一步 M1（Web 界面 + 收件箱整理）。
+- 状态：M0 已完成（2026-10-27）：命令行建库、导入、统计。下一步 M1（Web 界面 + 收件箱整理）。
 
 ## 快速开始
 ```
@@ -13,7 +13,7 @@ python -m venv .venv
 
 .venv\Scripts\artist-gallery init D:\MyGallery                    # 新建图库
 .venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片 -n   # 预演：看看会怎么归档
-.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入（移动；加 --copy 则保留原文件）
+.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入（复制进图库，完成后询问是否删除源文件）
 .venv\Scripts\artist-gallery status D:\MyGallery                  # 统计
 ```
 

@@ -1,5 +1,9 @@
-"""把外部图片/视频导入图库：计算 hash → 识别来源 → 复制校验 → 写库 →（移动模式下）删除源文件。
+"""把外部图片/视频导入图库，分两段：
 
+1. `import_files()`：计算 hash → 识别来源 → 复制并校验 → 写库。**永远不删源文件。**
+2. `delete_sources()`：用户确认后才调用。删除前再校验一次"图库副本完好、源文件没被改过"。
+
+这样"删不删源文件"是导入完成后、看过结果再做的独立决定（CLI 里的确认提示，界面里的复选框）。
 视频和图片走同一套文件名识别与归档；只是不读取宽高（不引入视频解析依赖）。
 """
 
@@ -35,6 +39,9 @@ class Action(StrEnum):
     ERROR = "error"
 
 
+IMPORTED = frozenset({Action.AUTO, Action.HINT, Action.INBOX})
+
+
 @dataclass
 class ImportItem:
     src: Path
@@ -42,15 +49,31 @@ class ImportItem:
     rel_path: str | None = None
     recognition: Recognition | None = None
     message: str = ""
+    sha256: str | None = None
 
 
 @dataclass
 class ImportReport:
+    root: Path
     items: list[ImportItem] = field(default_factory=list)
     dry_run: bool = False
+    batch_id: str = ""
 
     def counts(self) -> Counter[Action]:
         return Counter(i.action for i in self.items)
+
+    def deletable(self) -> list[ImportItem]:
+        """本次真正入库、源文件可以考虑删除的条目。重复、失败、预演的都不在内。"""
+        if self.dry_run:
+            return []
+        return [i for i in self.items if i.action in IMPORTED and i.sha256 and i.rel_path]
+
+
+@dataclass
+class DeleteResult:
+    item: ImportItem
+    deleted: bool
+    message: str = ""
 
 
 def _within(path: Path, base: Path) -> bool:
@@ -116,9 +139,8 @@ def _target_dir_and_stem(rec: Recognition, src: Path) -> tuple[PurePosixPath, st
 
 
 class _Importer:
-    def __init__(self, root: Path, *, move: bool, dry_run: bool) -> None:
+    def __init__(self, root: Path, *, dry_run: bool) -> None:
         self.root = root
-        self.move = move
         self.dry_run = dry_run
         self.conn = db.open_library(root)
         self.rules: RuleSet = load_rules(self.conn)
@@ -193,9 +215,9 @@ class _Importer:
         }[rec.confidence]
         folder, stem = _target_dir_and_stem(rec, src)
         rel = self._unique_rel(folder, stem, src.suffix.lower())
-        self.seen_sha.add(sha)
-        item = ImportItem(src, action, rel, rec)
+        item = ImportItem(src, action, rel, rec, sha256=sha)
         if self.dry_run:
+            self.seen_sha.add(sha)
             return item
 
         dst = self.root / rel
@@ -225,7 +247,7 @@ class _Importer:
                     (
                         self.batch_id,
                         json.dumps(
-                            {"image_id": image_id, "from": str(src), "to": rel, "moved": self.move},
+                            {"image_id": image_id, "from": str(src), "to": rel},
                             ensure_ascii=False,
                         ),
                     ),
@@ -236,11 +258,8 @@ class _Importer:
                 raise  # Ctrl+C 等：清理完副本后照常中断
             return ImportItem(src, Action.ERROR, message=f"写入数据库失败：{e}")
 
-        if self.move:
-            try:
-                src.unlink()
-            except OSError as e:
-                item.message = f"已导入，但删除源文件失败：{e}"
+        # 只有真正入库成功才算"见过"：否则第一份失败时，同批次里内容相同的第二份会被误判为重复而跳过
+        self.seen_sha.add(sha)
         return item
 
 
@@ -248,11 +267,14 @@ def import_files(
     root: Path,
     sources: Iterable[Path],
     *,
-    move: bool = True,
     dry_run: bool = False,
     recursive: bool = True,
 ) -> ImportReport:
-    """导入图片到图库。move=False 时保留源文件；dry_run=True 时只生成计划，不改动任何东西。"""
+    """把图片/视频复制进图库。不删除任何源文件——要删请在用户确认后调用 delete_sources()。
+
+    dry_run=True 时只生成计划，不动任何文件、不写任何记录
+    （唯一例外：旧版图库仍会被升级数据库结构，这和打开图库时的行为一致）。
+    """
     root = root.resolve()
     if not (root / db.DB_NAME).is_file():
         raise db.NotALibraryError(f"不是图库（找不到 {db.DB_NAME}）：{root}")
@@ -263,11 +285,52 @@ def import_files(
 
     # 图库在源文件夹里面时（如从 E:\ 导入、图库在 E:\lib），扫描要绕开图库本身
     files = [f for f in iter_media_files(sources, recursive) if not _within(f, root)]
-    report = ImportReport(dry_run=dry_run)
-    imp = _Importer(root, move=move, dry_run=dry_run)
+    imp = _Importer(root, dry_run=dry_run)
+    report = ImportReport(root=root, dry_run=dry_run, batch_id=imp.batch_id)
     try:
         for f in files:
             report.items.append(imp.import_one(f))
     finally:
         imp.close()
     return report
+
+
+def delete_sources(report: ImportReport) -> list[DeleteResult]:
+    """删除本次已导入文件的源文件。只应在用户明确确认后调用。
+
+    每个文件删除前再查一遍，任何一项不满足就跳过、保留源文件：
+    - 图库里的副本还在，且内容和导入时一致；
+    - 源文件还在，且内容和导入时一致（导入后被编辑过的不删）。
+    """
+    results: list[DeleteResult] = []
+    conn = db.open_library(report.root)
+    try:
+        for it in report.deletable():
+            assert it.sha256 and it.rel_path
+            copy = report.root / it.rel_path
+            try:
+                if not copy.is_file() or sha256_file(copy) != it.sha256:
+                    results.append(DeleteResult(it, False, "图库副本缺失或已变化，保留源文件"))
+                    continue
+                if not it.src.is_file():
+                    results.append(DeleteResult(it, False, "源文件已不在"))
+                    continue
+                if sha256_file(it.src) != it.sha256:
+                    results.append(DeleteResult(it, False, "源文件在导入后被修改过，保留"))
+                    continue
+                it.src.unlink()
+            except OSError as e:
+                results.append(DeleteResult(it, False, f"删除失败：{e}"))
+                continue
+            with conn:
+                conn.execute(
+                    "INSERT INTO op_log (batch_id, kind, payload) VALUES (?, 'delete_source', ?)",
+                    (
+                        report.batch_id,
+                        json.dumps({"from": str(it.src), "kept": it.rel_path}, ensure_ascii=False),
+                    ),
+                )
+            results.append(DeleteResult(it, True))
+    finally:
+        conn.close()
+    return results

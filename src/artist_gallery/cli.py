@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
 from artist_gallery import __version__
 from artist_gallery.core import db
-from artist_gallery.core.importer import Action, ImportItem, import_files
+from artist_gallery.core.importer import Action, ImportItem, delete_sources, import_files
 
 _ACTION_LABEL = {
     Action.AUTO: "自动归档",
@@ -46,16 +47,27 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ask_delete(n: int) -> bool:
+    """交互式确认；非交互环境（管道、脚本）一律视为"不删"。"""
+    if not sys.stdin.isatty():
+        print("（非交互环境，未删除源文件。需要删除请加 --delete-source yes）")
+        return False
+    try:
+        ans = input(f"\n{n} 个文件已复制进图库并校验通过。删除源文件吗？[y/N] ")
+    except EOFError:
+        return False
+    return ans.strip().lower() in {"y", "yes"}
+
+
 def _cmd_import(args: argparse.Namespace) -> int:
     try:
         report = import_files(
             Path(args.library),
             [Path(p) for p in args.paths],
-            move=not args.copy,
             dry_run=args.dry_run,
             recursive=not args.no_recursive,
         )
-    except (FileNotFoundError, ValueError) as e:
+    except (OSError, ValueError, RuntimeError, sqlite3.DatabaseError) as e:
         print(f"错误：{e}", file=sys.stderr)
         return 1
 
@@ -72,8 +84,23 @@ def _cmd_import(args: argparse.Namespace) -> int:
     summary = "，".join(f"{_ACTION_LABEL[a]} {c[a]}" for a in Action if c[a])
     prefix = "【预演，未做任何改动】" if report.dry_run else ""
     print(f"\n{prefix}共 {len(report.items)} 个文件：{summary}")
-    if not report.dry_run and not args.copy and (c[Action.AUTO] + c[Action.HINT] + c[Action.INBOX]):
-        print("源文件已移入图库（校验通过后才删除原文件）。")
+
+    deletable = report.deletable()
+    if deletable:
+        if args.delete_source == "yes":
+            confirm = True
+        elif args.delete_source == "no":
+            confirm = False
+        else:
+            confirm = _ask_delete(len(deletable))
+        if confirm:
+            results = delete_sources(report)
+            kept = [r for r in results if not r.deleted]
+            print(f"已删除源文件 {len(results) - len(kept)} 个。")
+            for r in kept:
+                print(f"  [保留] {r.item.src.name}  ({r.message})")
+        else:
+            print("源文件保留未动。")
     return 1 if c[Action.ERROR] else 0
 
 
@@ -81,7 +108,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     root = Path(args.library)
     try:
         conn = db.open_library(root)
-    except db.NotALibraryError as e:
+    except (OSError, RuntimeError, sqlite3.DatabaseError) as e:
         print(f"错误：{e}", file=sys.stderr)
         return 1
     try:
@@ -100,7 +127,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         for row in conn.execute(
             "SELECT platform, COUNT(*) FROM source GROUP BY platform ORDER BY 2 DESC"
         ):
-            print(f"  来源 {row[0]:<8}{row[1]}")
+            print(f"  来源 {row[0]:<10}{row[1]}")
     finally:
         conn.close()
     return 0
@@ -115,10 +142,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("root", help="图库根目录")
     p_init.set_defaults(func=_cmd_init)
 
-    p_imp = sub.add_parser("import", help="导入图片（默认移动进图库）")
+    p_imp = sub.add_parser("import", help="导入图片/视频（复制进图库，完成后询问是否删除源文件）")
     p_imp.add_argument("library", help="图库根目录")
     p_imp.add_argument("paths", nargs="+", help="要导入的文件或文件夹")
-    p_imp.add_argument("--copy", action="store_true", help="复制而不是移动，保留源文件")
+    p_imp.add_argument(
+        "--delete-source",
+        choices=["ask", "yes", "no"],
+        default="ask",
+        help="导入完成后是否删除源文件：ask=询问（默认），yes=直接删，no=保留",
+    )
     p_imp.add_argument("-n", "--dry-run", action="store_true", help="只显示计划，不做任何改动")
     p_imp.add_argument("--no-recursive", action="store_true", help="不进入子文件夹")
     p_imp.add_argument("-v", "--verbose", action="store_true", help="逐个列出所有文件")

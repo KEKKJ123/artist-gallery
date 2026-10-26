@@ -10,15 +10,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "Pillow>=10",
+    "starlette>=0.40",  # ADR 0003：纯 Python
+    "uvicorn>=0.30",  # 不带 [standard]，避免 uvloop/httptools 原生扩展（ADR 0003）
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "httpx2",  # starlette TestClient 需要；只用于测试（旧版 httpx 已被 starlette 标记弃用）
 ]
 # 后续里程碑再启用（运行时依赖须为纯 Python 或 Chaquopy 有现成包，见 ADR 0003）：
-# web = ["starlette", "uvicorn"]        # M1，uvicorn 不带 [standard]（避免 uvloop/httptools 原生扩展）
 # download = ["gallery-dl"]             # M3
 
 [project.scripts]

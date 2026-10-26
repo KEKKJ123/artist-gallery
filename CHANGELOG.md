@@ -3,6 +3,17 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
+### M1a：本地服务与缩略图
+- 新增 `artist-gallery serve <图库> [--host] [--port]`：启动本地网页服务，默认只监听 127.0.0.1:8765。
+- 新增 `server/app.py`（Starlette）：`GET /api/inbox`（分页）、`GET /api/platforms`、`GET /thumbs/{sha256}`、`GET /images/{路径}`；未知 `/api/*` 返回 404 JSON。
+- 安全：默认只接受 Host 为 localhost / 127.0.0.1 的请求（防 DNS rebinding）；`--host` 设为非本机地址时才放开并提示"无登录保护"；`/images/` 拒绝目录穿越。
+- 新增 `core/thumbnail.py`：静态图懒生成 400px WebP 缩略图，缓存在 `.cache/thumbs/`（按 sha256 命名）；先写临时文件再改名，按 EXIF 摆正方向；视频和 GIF 不生成（返回 204）。
+- 新增 `core/inbox.py`：收件箱与平台列表查询。
+- `server/static/index.html` 为占位页，真正的前端在 M1b 加入。
+- 运行时依赖新增 starlette、uvicorn（均为纯 Python，符合 ADR 0003）；测试依赖新增 httpx2。
+- ADR 0006：M1 不开启 SQLite WAL（图库靠复制文件夹同步，WAL 在进程被杀时可能丢改动）。
+- 测试增至 128 个。
+
 ### 变更：删除源文件改为用户确认（ADR 0005）
 - `import` 只复制，不再自动删除源文件；`--copy` 参数移除。
 - 新增 `--delete-source ask|yes|no`（默认 ask：导入完成后提示 `[y/N]`，回车即不删；脚本/管道下视为不删）。

@@ -41,6 +41,10 @@
   ```
 - 运行测试：`.venv\Scripts\python -m pytest`
 - CLI：`.venv\Scripts\artist-gallery --help`
+- 启动网页服务：`.venv\Scripts\artist-gallery serve <图库目录>`，浏览器打开 http://localhost:8765
+- 测试依赖 `httpx2`（Starlette 的 TestClient 需要），装 `.[dev]` 时已包含。
+- 数据库**不开 WAL**（ADR 0006）：图库靠复制文件夹同步，不要自行加 `PRAGMA journal_mode=WAL`。
+- server 的请求处理器写成普通 `def`（在线程池里跑），每个请求用 `db.connect()` 自己开关连接，不要跨线程共用连接。
 - Termux 上安装：Pillow 用 `pkg install python-pillow`，venv 加 `--system-site-packages`；只装 `pip install -e . pytest`，**不要装 `.[dev]`**（ruff 是 Rust 写的，会在手机上现场编译）。
 
 ## 代码风格

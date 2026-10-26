@@ -3,7 +3,7 @@ from PIL import Image
 
 from artist_gallery.cli import main
 from artist_gallery.core import db
-from artist_gallery.core.importer import Action, _safe_stem, import_files
+from artist_gallery.core.importer import Action, _safe_stem, delete_sources, import_files
 
 
 def make_image(path, color=(255, 0, 0), size=(8, 8)):
@@ -56,7 +56,7 @@ def test_hidden_folders_skipped(lib, tmp_path):
     assert [i.src.name for i in report.items] == ["b.jpg"]
 
 
-def test_import_moves_and_classifies(lib, src):
+def test_import_copies_and_classifies(lib, src):
     report = import_files(lib, [src])
     by_name = {i.src.name: i for i in report.items}
     assert len(report.items) == 5  # txt 被忽略
@@ -68,9 +68,9 @@ def test_import_moves_and_classifies(lib, src):
     assert by_name["GxAbC12xyzQ.jpg"].rel_path == "images/_inbox/GxAbC12xyzQ.jpg"
     assert by_name["红豆 12345678.png"].action is Action.HINT
 
-    # 文件已移动：源不在了，目标在
+    # 导入只复制：源文件全部还在，图库里也有
     for it in report.items:
-        assert not it.src.exists()
+        assert it.src.exists()
         assert (lib / it.rel_path).is_file()
 
     conn = db.connect(lib)
@@ -92,9 +92,57 @@ def test_import_moves_and_classifies(lib, src):
     conn.close()
 
 
-def test_copy_mode_keeps_source(lib, src):
-    import_files(lib, [src], move=False)
+def test_delete_sources_after_confirm(lib, src):
+    report = import_files(lib, [src])
+    results = delete_sources(report)
+    assert len(results) == 5 and all(r.deleted for r in results)
+    for it in report.items:
+        assert not it.src.exists()
+        assert (lib / it.rel_path).is_file()
+    conn = db.connect(lib)
+    n = conn.execute("SELECT COUNT(*) FROM op_log WHERE kind = 'delete_source'").fetchone()[0]
+    assert n == 5
+    conn.close()
+
+
+def test_delete_sources_skips_unsafe_cases(lib, tmp_path):
+    a = make_image(tmp_path / "s" / "a.png", (1, 9, 9))  # 导入后被修改
+    b = make_image(tmp_path / "s" / "b.png", (2, 9, 9))  # 图库副本被弄坏
+    c = make_image(tmp_path / "s" / "c.png", (3, 9, 9))  # 正常
+    report = import_files(lib, [tmp_path / "s"])
+    rel = {i.src.name: i.rel_path for i in report.items}
+    make_image(a, (99, 99, 99))
+    (lib / rel["b.png"]).write_bytes(b"corrupted")
+    results = {r.item.src.name: r for r in delete_sources(report)}
+    assert not results["a.png"].deleted and a.exists()
+    assert not results["b.png"].deleted and b.exists()
+    assert results["c.png"].deleted and not c.exists()
+
+
+def test_dry_run_and_duplicates_are_never_deletable(lib, src, tmp_path):
+    assert import_files(lib, [src], dry_run=True).deletable() == []
+    import_files(lib, [src])
+    again = import_files(lib, [src])  # 全是重复
+    assert again.deletable() == []
+    assert delete_sources(again) == []
     assert (src / "123456789_p0.png").exists()
+
+
+@pytest.mark.parametrize(("flag", "deleted"), [("yes", True), ("no", False), ("ask", False)])
+def test_cli_delete_source_flag(lib, src, flag, deleted, monkeypatch):
+    # ask 在测试里是非交互环境 → 视为不删
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    assert main(["import", str(lib), str(src), "--delete-source", flag]) == 0
+    assert (src / "123456789_p0.png").exists() is (not deleted)
+
+
+def test_cli_interactive_confirm(lib, src, monkeypatch):
+    import artist_gallery.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod.sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert main(["import", str(lib), str(src)]) == 0
+    assert not (src / "123456789_p0.png").exists()
 
 
 def test_dry_run_changes_nothing(lib, src):
@@ -109,12 +157,13 @@ def test_dry_run_changes_nothing(lib, src):
 
 def test_duplicates_skipped_and_source_kept(lib, tmp_path):
     a = make_image(tmp_path / "a" / "123456789_p0.png", (9, 9, 9))
-    import_files(lib, [a.parent], move=False)
+    import_files(lib, [a.parent])
     # 同内容、不同名字
     b = make_image(tmp_path / "b" / "whatever.png", (9, 9, 9))
     report = import_files(lib, [b.parent])
     assert report.items[0].action is Action.DUP
-    assert b.exists()  # 重复的源文件不删
+    delete_sources(report)
+    assert b.exists()  # 重复的源文件即使确认删除也不删（库里那份不是它的副本）
 
 
 def test_failed_copy_does_not_mark_duplicate(lib, tmp_path, monkeypatch):
@@ -134,7 +183,8 @@ def test_failed_copy_does_not_mark_duplicate(lib, tmp_path, monkeypatch):
     report = import_files(lib, [tmp_path / "s"])
     actions = {i.src.name: i.action for i in report.items}
     assert actions == {"a.png": Action.ERROR, "b.png": Action.INBOX}
-    assert a.exists() and not b.exists()
+    assert [i.src for i in report.deletable()] == [b]  # 失败的那份不会被列为可删
+    assert a.exists()
 
 
 def test_cli_newer_db_version_is_clean_error(lib, capsys):
@@ -235,7 +285,7 @@ def test_library_inside_source_is_skipped(tmp_path):
     root = tmp_path / "lib"
     db.init_library(root)
     make_image(tmp_path / "x.png", (3, 3, 3))
-    import_files(root, [tmp_path / "x.png"], move=False)
+    import_files(root, [tmp_path / "x.png"])
     # 从图库的上级目录导入：图库里已有的文件不能被再次扫进来
-    report = import_files(root, [tmp_path], move=False)
+    report = import_files(root, [tmp_path])
     assert all(not str(i.src).startswith(str(root)) for i in report.items)

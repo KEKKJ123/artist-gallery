@@ -13,7 +13,7 @@ python -m venv .venv
 
 .venv\Scripts\artist-gallery init D:\MyGallery                    # 新建图库
 .venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片 -n   # 预演：看看会怎么归档
-.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入（移动；加 --copy 则保留原文件）
+.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入（复制进图库，完成后询问是否删除源文件）
 .venv\Scripts\artist-gallery status D:\MyGallery                  # 统计
 ```
 

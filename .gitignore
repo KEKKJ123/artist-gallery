@@ -38,7 +38,7 @@ frontend/dist/
 Thumbs.db
 desktop.ini
 .DS_Store
-.github/
+.github/agents
 
 # --- 草稿文件 ---
 *.bak

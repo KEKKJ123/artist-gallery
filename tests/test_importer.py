@@ -31,22 +31,29 @@ def src(tmp_path):
     return d
 
 
-def test_video_is_reported_and_kept(lib, tmp_path):
-    v = tmp_path / "s" / "Video_24301078824427.mp4"
-    v.parent.mkdir()
-    v.write_bytes(b"\x00\x00\x00\x18ftypmp42")
-    make_image(tmp_path / "s" / "EO2cBcJWoAAJJWf.jpeg", (6, 0, 0))
-    report = import_files(lib, [v.parent])
+def test_video_classified_like_images(lib, tmp_path):
+    d = tmp_path / "s"
+    d.mkdir()
+    (d / "Video_24301078824427.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42 a")
+    (d / "作品_123456789.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42 b")
+    make_image(d / "EO2cBcJWoAAJJWf.jpeg", (6, 0, 0))
+    report = import_files(lib, [d])
     by_name = {i.src.name: i for i in report.items}
-    assert by_name[v.name].action is Action.SKIP
-    assert v.exists()
+    assert by_name["Video_24301078824427.mp4"].action is Action.INBOX
+    assert by_name["作品_123456789.mp4"].rel_path == "images/pixiv/pixiv_123456789_p0.mp4"
     mk = by_name["EO2cBcJWoAAJJWf.jpeg"]
     assert mk.action is Action.HINT and mk.rel_path.startswith("images/_inbox/")
     conn = db.connect(lib)
-    assert conn.execute("SELECT source_hint FROM image").fetchone()[0] == (
-        '{"platform": "x", "post_id": null, "page": null}'
-    )
+    hint = conn.execute("SELECT source_hint FROM image WHERE source_hint IS NOT NULL").fetchone()
+    assert hint[0] == '{"platform": "x", "post_id": null, "page": null}'
     conn.close()
+
+
+def test_hidden_folders_skipped(lib, tmp_path):
+    make_image(tmp_path / "s" / ".thumbnails" / "a.jpg", (1, 1, 1))
+    make_image(tmp_path / "s" / "b.jpg", (2, 2, 2))
+    report = import_files(lib, [tmp_path / "s"])
+    assert [i.src.name for i in report.items] == ["b.jpg"]
 
 
 def test_import_moves_and_classifies(lib, src):

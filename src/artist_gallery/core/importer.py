@@ -1,4 +1,7 @@
-"""把外部图片导入图库：计算 hash → 识别来源 → 复制校验 → 写库 →（移动模式下）删除源文件。"""
+"""把外部图片/视频导入图库：计算 hash → 识别来源 → 复制校验 → 写库 →（移动模式下）删除源文件。
+
+视频和图片走同一套文件名识别与归档；只是不读取宽高（不引入视频解析依赖）。
+"""
 
 from __future__ import annotations
 
@@ -17,8 +20,8 @@ from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
 
 IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
-# 视频暂不导入（设计文档第 10 节：未来构想），但要在报告里列出来，不能悄悄忽略
 VIDEO_EXTS = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"})
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 INBOX = PurePosixPath("images/_inbox")
 
 
@@ -27,7 +30,6 @@ class Action(StrEnum):
     HINT = "hint"  # 中置信，进收件箱并附建议
     INBOX = "inbox"  # 未识别，进收件箱
     DUP = "dup"  # 图库里已有相同文件，跳过（源文件不动）
-    SKIP = "skip"  # 暂不支持的媒体类型（视频），源文件不动
     ERROR = "error"
 
 
@@ -49,15 +51,26 @@ class ImportReport:
         return Counter(i.action for i in self.items)
 
 
+def _hidden(path: Path, base: Path) -> bool:
+    """base 之下的任何一级以 '.' 开头即视为隐藏（如 Android 的 DCIM/.thumbnails、.trash）。"""
+    return any(part.startswith(".") for part in path.relative_to(base).parts)
+
+
 def iter_media_files(paths: Iterable[Path], recursive: bool = True) -> list[Path]:
-    """展开参数里的文件和文件夹，保留图片和视频扩展名，按路径排序。"""
-    exts = IMAGE_EXTS | VIDEO_EXTS
+    """展开参数里的文件和文件夹，保留图片和视频，跳过隐藏文件/文件夹，按路径排序。
+
+    直接点名的文件不受"隐藏"规则限制——用户明确指定了就导入。
+    """
     found: set[Path] = set()
     for p in paths:
         if p.is_dir():
             it = p.rglob("*") if recursive else p.glob("*")
-            found.update(f for f in it if f.is_file() and f.suffix.lower() in exts)
-        elif p.is_file() and p.suffix.lower() in exts:
+            found.update(
+                f
+                for f in it
+                if f.suffix.lower() in MEDIA_EXTS and f.is_file() and not _hidden(f, p)
+            )
+        elif p.is_file() and p.suffix.lower() in MEDIA_EXTS:
             found.add(p)
     return sorted(found)
 
@@ -123,8 +136,6 @@ class _Importer:
         return work_id
 
     def import_one(self, src: Path) -> ImportItem:
-        if src.suffix.lower() in VIDEO_EXTS:
-            return ImportItem(src, Action.SKIP, message="视频暂不支持，已跳过")
         try:
             sha = sha256_file(src)
         except OSError as e:
@@ -135,13 +146,15 @@ class _Importer:
             where = dup[0] if dup else "本批次中的另一文件"
             return ImportItem(src, Action.DUP, message=f"与 {where} 相同")
 
-        try:
-            with Image.open(src) as im:
-                width, height = im.size
-        except Image.DecompressionBombError:
-            width = height = None  # 超大图：头部合法，只是像素数超过 Pillow 默认上限
-        except Exception as e:  # noqa: BLE001 —— 任何解析失败都视为"不是图片"
-            return ImportItem(src, Action.ERROR, message=f"无法识别为图片：{e}")
+        width = height = None
+        if src.suffix.lower() in IMAGE_EXTS:
+            try:
+                with Image.open(src) as im:
+                    width, height = im.size
+            except Image.DecompressionBombError:
+                pass  # 超大图：头部合法，只是像素数超过 Pillow 默认上限
+            except Exception as e:  # noqa: BLE001 —— 任何解析失败都视为"不是图片"
+                return ImportItem(src, Action.ERROR, message=f"无法识别为图片：{e}")
 
         rec = recognize(src.stem, self.rules)
         action = {

@@ -8,16 +8,32 @@ from pathlib import Path
 
 from artist_gallery import __version__
 from artist_gallery.core import db
-from artist_gallery.core.importer import Action, import_files
+from artist_gallery.core.importer import Action, ImportItem, import_files
 
 _ACTION_LABEL = {
     Action.AUTO: "自动归档",
     Action.HINT: "收件箱(有建议)",
     Action.INBOX: "收件箱",
     Action.DUP: "重复跳过",
-    Action.SKIP: "暂不支持",
     Action.ERROR: "失败",
 }
+
+
+def _format_item(it: ImportItem, verbose: bool) -> str | None:
+    """一行报告；默认模式下不显示"收件箱"（数量多且无信息），-v 时全部显示。"""
+    if it.action is Action.INBOX and not verbose:
+        return None
+    parts = [f"[{_ACTION_LABEL[it.action]}] {it.src.name}"]
+    if it.rel_path and (it.action is Action.AUTO or verbose):
+        parts.append(f"-> {it.rel_path}")
+    if it.action is Action.HINT and it.recognition:
+        r = it.recognition
+        parts.append(
+            f"可能是 {r.platform}:{r.post_id}" if r.post_id else f"可能来自 {r.platform}，需补链接"
+        )
+    if it.message:
+        parts.append(f"({it.message})")
+    return "  ".join(parts)
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -44,23 +60,13 @@ def _cmd_import(args: argparse.Namespace) -> int:
         return 1
 
     if not report.items:
-        print("没有找到图片文件。")
+        print("没有找到图片或视频文件。")
         return 0
 
     for it in report.items:
-        if it.action is Action.AUTO or (it.action in (Action.HINT, Action.INBOX) and args.verbose):
-            line = f"[{_ACTION_LABEL[it.action]}] {it.src.name} -> {it.rel_path}"
-        elif it.action is Action.HINT:
-            r = it.recognition
-            guess = f"{r.platform}:{r.post_id}" if r.post_id else f"{r.platform}（需手动补链接）"
-            line = f"[{_ACTION_LABEL[it.action]}] {it.src.name}  可能是 {guess}"
-        elif it.action in (Action.DUP, Action.SKIP, Action.ERROR) or args.verbose:
-            line = f"[{_ACTION_LABEL[it.action]}] {it.src.name}  {it.message}"
-        else:
-            continue
-        if it.message and it.action not in (Action.DUP, Action.SKIP, Action.ERROR):
-            line += f"  ({it.message})"
-        print(line)
+        line = _format_item(it, args.verbose)
+        if line:
+            print(line)
 
     c = report.counts()
     summary = "，".join(f"{_ACTION_LABEL[a]} {c[a]}" for a in Action if c[a])

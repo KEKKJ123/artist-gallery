@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "artist-gallery"
+version = "0.0.1"
+description = "本地画师作品图库：按画师 / 来源 / tag 管理图片"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "Pillow>=10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+# 后续里程碑再启用：
+# web = ["fastapi", "uvicorn"]          # M1
+# download = ["gallery-dl"]             # M3
+
+[project.scripts]
+artist-gallery = "artist_gallery.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+artist_gallery = ["*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

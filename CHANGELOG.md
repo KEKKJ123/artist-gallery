@@ -3,6 +3,11 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
+### 协作
+- 新增 `CONTRIBUTING.md`：分支 + Pull Request + Squash and merge，`main` 不直接推送。
+- 新增 GitHub Actions CI：Windows / Ubuntu × Python 3.12 / 3.14，跑 ruff 和 pytest。
+- 新增 PR 模板；AGENTS.md 的 Git 约定改为走 PR。
+
 ### 修复（代码审查 2026-10-26）
 - 内置平台规则移到 `core/platforms.py`，打开图库时同步进数据库：旧图库自动用上新规则，此前已建的库不会再卡在旧正则上。迁移 v3 → v4 加 `platform.builtin` 列。
 - 新增 `db.open_library()` 统一"连接 → 迁移 → 同步内置平台"。

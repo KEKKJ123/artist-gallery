@@ -50,10 +50,12 @@
 - SQL 用参数化查询，不拼字符串。
 
 ## Git 约定
-- 分支：直接在 `main` 上提交（单人项目）；大改动可开 `feat/xxx` 分支。
+完整流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。要点：
+- **不直接 push `main`**。从最新 main 开分支（`feat/…`、`fix/…` 等），推分支后开 Pull Request，CI 绿了再由别人合并（Squash and merge）。
 - commit 前缀：`feat:` 新功能 / `fix:` 修复 / `docs:` 文档 / `refactor:` 重构 / `test:` 测试 / `chore:` 杂项。
-- 一个 commit 只做一件事；提交前跑一遍测试。
-- AI 代理完成改动后：commit 并 push，然后在回复里列出 commit 哈希和改动摘要。
+- 一个 commit 只做一件事；提交前跑一遍测试和 ruff。
+- 动 `MIGRATIONS` 前确认没有别的开着的 PR 也在加迁移。
+- **AI 代理**：开工前 `git switch main; git pull --ff-only`，再开分支。完成后推分支，在回复里给出分支名、commit 哈希、改动摘要和开 PR 的链接 `https://github.com/KEKKJ123/artist-gallery/compare/main...<分支名>?expand=1`。不自行合并，由红豆合并。
 
 ## 不确定时
 需求不清楚、设计文档没写到、或要做破坏性操作（批量移动、删记录、改 schema）时，先问红豆，不要自行补全。

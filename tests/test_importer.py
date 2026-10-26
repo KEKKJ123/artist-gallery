@@ -160,9 +160,21 @@ def test_cli_import_and_status(lib, src, capsys):
     assert "收件箱" in out and "pixiv" in out
 
 
+def test_safe_stem_truncates_by_bytes():
+    # 纯函数测试，任何平台都能跑：120 个汉字 = 360 字节
+    s = _safe_stem("長" * 120)
+    assert len(s.encode("utf-8")) <= 150
+    assert s == "長" * 50  # 按完整字符截断，不会切出半个 UTF-8 字符
+
+
 def test_long_inbox_name_is_truncated(lib, tmp_path):
-    long_name = "長" * 120 + ".png"  # 360 字节：NTFS 能存，但 Android 的 ext4/F2FS 上限是 255 字节
-    make_image(tmp_path / "s" / long_name, (8, 1, 1))
+    # 端到端：需要一个能存下 >255 字节文件名的文件系统（如 Windows NTFS）。
+    # Android 的 ext4/F2FS 本身就建不出这种文件——那里也不可能遇到它，跳过即可。
+    long_name = "長" * 90 + ".png"  # 274 字节
+    try:
+        make_image(tmp_path / "s" / long_name, (8, 1, 1))
+    except OSError as e:
+        pytest.skip(f"当前文件系统不支持超长文件名：{e}")
     report = import_files(lib, [tmp_path / "s"])
     name = report.items[0].rel_path.rsplit("/", 1)[1]
     assert len(name.encode("utf-8")) <= 200

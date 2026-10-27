@@ -1,4 +1,4 @@
-"""命令行入口：init / import / status。"""
+"""命令行入口：init / import / status / serve。"""
 
 from __future__ import annotations
 
@@ -133,6 +133,36 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+_LOCAL_BINDS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    # 延迟导入：其他命令不需要 Web 依赖，也不因此变慢
+    import uvicorn
+
+    from artist_gallery.server.app import create_app
+
+    root = Path(args.library)
+    lan = args.host not in _LOCAL_BINDS
+    try:
+        app = create_app(root, allow_any_host=lan)
+    except (OSError, RuntimeError, sqlite3.DatabaseError) as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+
+    shown = "localhost" if not lan else args.host
+    print(f"图库：{root.resolve()}")
+    print(f"打开浏览器访问：http://{shown}:{args.port}   （Ctrl+C 停止）")
+    if lan:
+        print("注意：已允许局域网访问，目前没有登录保护，同一网络里的人都能看到图库。")
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    except OSError as e:  # 端口被占用等
+        print(f"错误：无法监听 {args.host}:{args.port}（{e}）", file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="artist-gallery", description="本地画师作品图库")
     p.add_argument("--version", action="version", version=__version__)
@@ -159,6 +189,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_st = sub.add_parser("status", help="显示图库统计")
     p_st.add_argument("library", help="图库根目录")
     p_st.set_defaults(func=_cmd_status)
+
+    p_sv = sub.add_parser("serve", help="启动本地网页界面")
+    p_sv.add_argument("library", help="图库根目录")
+    p_sv.add_argument("--host", default="127.0.0.1", help="监听地址，默认只允许本机访问")
+    p_sv.add_argument("--port", type=int, default=8765, help="端口，默认 8765")
+    p_sv.set_defaults(func=_cmd_serve)
 
     return p
 

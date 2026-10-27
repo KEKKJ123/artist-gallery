@@ -1,14 +1,11 @@
 import re
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 from artist_gallery.core import db
 from artist_gallery.core.platforms import BUILTIN_BY_ID
 from artist_gallery.core.recognize import load_rules, recognize
-
-FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_init_creates_layout(tmp_path):
@@ -42,25 +39,6 @@ def test_open_non_library_does_not_create(tmp_path):
     assert not (tmp_path / db.DB_NAME).exists()
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4])
-def test_legacy_library_rejected_without_writes(tmp_path, version, monkeypatch):
-    conn = sqlite3.connect(tmp_path / db.DB_NAME)
-    conn.executescript((FIXTURES / "schema_v1.sql").read_text("utf-8"))
-    conn.execute(f"PRAGMA user_version={version}")
-    conn.commit()
-    conn.close()
-    media = tmp_path / "images" / "old.png"
-    media.parent.mkdir()
-    media.write_bytes(b"original")
-    before = (tmp_path / db.DB_NAME).read_bytes()
-    monkeypatch.setattr(db, "sync_builtin_platforms", lambda _: pytest.fail("旧库不准同步"))
-    for readonly in (False, True):
-        with pytest.raises(db.LibraryFormatError, match="不支持旧开发库"):
-            db.open_library(tmp_path, readonly=readonly)
-    assert (tmp_path / db.DB_NAME).read_bytes() == before
-    assert media.read_bytes() == b"original"
-
-
 @pytest.mark.parametrize("kind", ["unknown", "newer", "incomplete", "broken"])
 def test_other_formats_fail_without_write(tmp_path, kind):
     path = tmp_path / db.DB_NAME
@@ -91,6 +69,7 @@ def test_failed_new_format_migration_rolls_back(tmp_path, monkeypatch):
         db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN zzz TEXT; SELECT * FROM no_such;"]
     )
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: db.REQUIRED_SCHEMAS[5]})
     conn = db.connect(tmp_path)
     with pytest.raises(sqlite3.OperationalError):
         db.migrate(conn)
@@ -103,6 +82,7 @@ def test_successful_new_format_upgrade(tmp_path, monkeypatch):
     db.init_library(tmp_path)
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: db.REQUIRED_SCHEMAS[5]})
     conn = db.open_library(tmp_path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
     assert "note" in {r[1] for r in conn.execute("PRAGMA table_info(image)")}
@@ -162,19 +142,68 @@ def test_readonly_does_not_sync_or_allow_write(tmp_path, monkeypatch):
     assert (tmp_path / db.DB_NAME).read_bytes() == before
 
 
-def test_cli_legacy_errors_are_readable_and_non_destructive(tmp_path, capsys):
-    from artist_gallery.cli import main
-
-    conn = sqlite3.connect(tmp_path / db.DB_NAME)
-    conn.executescript((FIXTURES / "schema_v1.sql").read_text("utf-8"))
-    conn.execute("PRAGMA user_version=4")
-    conn.commit()
+def test_new_required_field_does_not_block_its_migration(tmp_path, monkeypatch):
+    db.init_library(tmp_path)
+    required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
+    monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: required6})
+    conn = db.open_library(tmp_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert "note" in {r[1] for r in conn.execute("PRAGMA table_info(image)")}
     conn.close()
+
+
+def test_target_schema_failure_rolls_back_entire_step(tmp_path, monkeypatch):
+    db.init_library(tmp_path)
+    required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
+    monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN wrong_field TEXT;"])
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: required6})
+    with pytest.raises(db.LibraryFormatError, match="结构不完整"):
+        db.open_library(tmp_path)
+    conn = db.connect(tmp_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert "wrong_field" not in {r[1] for r in conn.execute("PRAGMA table_info(image)")}
+    conn.close()
+
+
+def test_all_intermediate_versions_checked_and_repeat_open_is_idempotent(tmp_path, monkeypatch):
+    db.init_library(tmp_path)
+    required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
+    required7 = {**required6, "image": required6["image"] | {"extra_note"}}
+    monkeypatch.setattr(
+        db,
+        "MIGRATIONS",
+        [
+            "ALTER TABLE image ADD COLUMN note TEXT;",
+            "ALTER TABLE image ADD COLUMN extra_note TEXT;",
+        ],
+    )
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 7)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: required6, 7: required7})
+    for _ in range(2):
+        conn = db.open_library(tmp_path)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        conn.close()
+
+
+def test_missing_upgrade_validation_refuses_before_any_write(tmp_path, monkeypatch):
+    db.init_library(tmp_path)
     before = (tmp_path / db.DB_NAME).read_bytes()
-    assert main(["status", str(tmp_path)]) == 1
-    assert "不支持旧开发库" in capsys.readouterr().err
-    assert main(["import", str(tmp_path), str(tmp_path.parent / "empty-source")]) == 1
-    assert "不支持旧开发库" in capsys.readouterr().err
-    assert main(["init", str(tmp_path)]) == 1
-    assert "非空" in capsys.readouterr().err
+    monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    with pytest.raises(db.LibraryFormatError, match="缺少图库版本 6"):
+        db.open_library(tmp_path)
+    assert (tmp_path / db.DB_NAME).read_bytes() == before
+
+
+def test_readonly_outdated_supported_format_does_not_upgrade(tmp_path, monkeypatch):
+    db.init_library(tmp_path)
+    before = (tmp_path / db.DB_NAME).read_bytes()
+    monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: db.REQUIRED_SCHEMAS[5]})
+    with pytest.raises(db.LibraryFormatError, match="需要升级"):
+        db.open_library(tmp_path, readonly=True)
     assert (tmp_path / db.DB_NAME).read_bytes() == before

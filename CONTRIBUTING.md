@@ -41,8 +41,9 @@ git push --force-with-lease     # 只对自己的分支这样做；永远不要 
 |---|---|
 | 分支名 | `feat/…` 新功能、`fix/…` 修复、`docs/…`、`refactor/…`、`test/…`、`chore/…` |
 | commit 前缀 | 同上：`feat:` `fix:` `docs:` `refactor:` `test:` `chore:` |
-| 合并方式 | **Squash and merge**：一个 PR 在 main 上就是一个 commit，历史干净，回滚也只需回滚一个 |
-| PR 大小 | 一个 PR 做一件事；超过 ~400 行改动考虑拆开 |
+| 合并方式 | 继续 **Squash and merge**；不要求 main 保留每个开发 commit，PR 内仍能审查拆分记录 |
+| 大规模修改的提交 | 同一 PR 内按职责拆成多个 commit，每个带对应测试；不要把数据库、导入、界面等所有工作一次打成巨型 commit |
+| PR 大小 | 一个 PR 有清楚目标；超过 ~400 行考虑拆 PR，需配套的大改至少拆职责清晰的 commit |
 | 谁来合并 | 作者以外的人看过再合。AI 开的 PR 由红豆合并 |
 | CI | PR 上的 CI（Windows + Linux 跑测试和 ruff）必须是绿的 |
 | 本地 main | 只用 `git pull --ff-only` 更新，不在本地 main 上提交 |

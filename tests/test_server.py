@@ -123,7 +123,7 @@ class TestImages:
         """绕过 URL 规范化，直接把 ../ 交给处理器：必须返回 403。"""
         from types import SimpleNamespace
 
-        from artist_gallery.server.app import serve_image
+        from artist_gallery.server.media import serve_image
 
         app = create_app(lib)
         fake = SimpleNamespace(app=app, path_params={"rel_path": "../library.db"})

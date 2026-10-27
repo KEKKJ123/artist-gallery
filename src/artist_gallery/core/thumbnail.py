@@ -13,11 +13,10 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from artist_gallery.core.media import THUMB_EXTS
+
 THUMB_SIZE = 400  # 最长边上限（像素）
 THUMB_QUALITY = 80
-
-# 会生成缩略图的格式；其余（GIF、视频等）不生成
-THUMB_EXTS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp"})
 
 
 def thumb_path(root: Path, sha256: str) -> Path:

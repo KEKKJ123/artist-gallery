@@ -23,12 +23,9 @@ from PIL import Image
 
 from artist_gallery.core import db
 from artist_gallery.core.fileops import copy_verified, sha256_file
+from artist_gallery.core.layout import INBOX
+from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
 from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
-
-IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
-VIDEO_EXTS = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"})
-MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
-INBOX = PurePosixPath("images/_inbox")
 
 
 class Action(StrEnum):

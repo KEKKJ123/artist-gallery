@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
 # 所有内置正则都用 re.ASCII：\d 只匹配 0-9，避免全角数字等被当成 ID。
 _A = re.ASCII
@@ -84,3 +86,12 @@ BUILTIN_PLATFORMS: tuple[PlatformDef, ...] = (
 )
 
 BUILTIN_BY_ID: dict[str, PlatformDef] = {p.id: p for p in BUILTIN_PLATFORMS}
+
+
+def list_platforms(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """平台列表。url_regex 给前端在浏览器里直接解析粘贴的链接用。"""
+    rows = conn.execute(
+        "SELECT id, name, post_url, user_url, url_regex, builtin"
+        " FROM platform ORDER BY builtin DESC, id"
+    ).fetchall()
+    return [{**dict(r), "builtin": bool(r["builtin"])} for r in rows]

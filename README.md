@@ -11,7 +11,7 @@
 - [x] **M0** 命令行建库、导入（sha256 去重、文件名识别来源、收件箱）、统计
 - [ ] **M1** 收件箱批量整理界面
   - [x] M1a 本地网页服务、收件箱列表接口、缩略图
-  - [ ] M1b 前端骨架、缩略图网格、多选
+  - [x] M1b 前端骨架、缩略图网格、多选、键盘操作、大图预览
   - [ ] M1c 粘贴链接识别、归档为作品、画师绑定、撤销
   - [ ] M1d tag（补全、别名、默认 tag）
   - [ ] M1e 扫描找回被挪动的文件
@@ -22,7 +22,7 @@
 
 完整设计见 [docs/design.md](docs/design.md)，技术决策见 [docs/decisions/](docs/decisions/)。
 
-> 目前网页界面还只是占位页，整理图片要等 M1b、M1c 完成。现阶段可以用命令行建库、导入和查看统计。
+> 目前网页界面可以浏览收件箱、多选、大图预览，但还不能归档和打 tag（M1c、M1d）。导入图片用命令行。
 
 ## 快速开始（电脑）
 
@@ -78,7 +78,7 @@ artist-gallery serve ~/gallery                  # 然后用手机浏览器打开
 
 - Python 3.12 + SQLite + Pillow
 - Starlette + uvicorn（纯 Python，无原生扩展，兼容 Android）
-- 前端 Vue 3 + Vite（M1b 起；构建产物提交进仓库，所以使用时不需要 Node）
+- 前端 Vue 3 + Pinia + Vite（源码在 `frontend/`；构建产物提交进仓库，所以只是使用的话不需要 Node）
 
 ## 许可证
 

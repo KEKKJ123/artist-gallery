@@ -7,12 +7,22 @@
 ## [Unreleased]
 
 ### 新增
+- **M1b 前端界面**（Vue 3 + Pinia + Vite，源码 `frontend/`，构建产物提交在 `server/static/`）
+  - 收件箱缩略图网格：原比例 / 方形切换，缩略图大小滑块和 Ctrl+滚轮，按宽高预留空间防跳动，翻到底自动加载下一页。
+  - 来源建议角标常驻显示（"Pixiv 12345678"、"X?"）；视频和 GIF 显示格式占位，文件丢失时提示。
+  - 多选：点击、Ctrl 点击增减、Shift 点击选一段、Ctrl+A、Esc；方向键移动（Shift 扩展）；手机上长按进入多选。
+  - 大图预览：空格或双击打开，方向键切图，Esc 关闭；视频可播放。
+  - 深色 / 浅色 / 跟随系统主题，所有颜色是 CSS 变量；偏好（主题、大小、方形、面板）存在浏览器本地。
+  - 手机适配：至少两列、面板默认收起、顶栏不溢出、触控目标 ≥ 44px。
+  - 快捷键帮助（`?`）；右侧面板显示选中图的详情（归档、tag 功能留待 M1c / M1d）。
+  - 前端单元测试 58 个（vitest）；另用 Edge 的调试协议做过一轮 41 项真机冒烟（点击、键盘、预览、主题、持久化、手机尺寸），一次性脚本不进仓库。
+  - CI 新增 `frontend` 任务：跑单元测试，并检查提交的构建产物与源码一致。
+  - 前端运行时依赖仅 vue、pinia、@lucide/vue。
 - **M1a 本地网页服务**
   - `artist-gallery serve <图库> [--host] [--port]`：启动本地服务，默认只监听 127.0.0.1:8765。
   - `server/app.py`（Starlette）：`GET /api/inbox`（分页）、`GET /api/platforms`、`GET /thumbs/{sha256}`、`GET /images/{路径}`；未知 `/api/*` 返回 404 JSON。
   - `core/thumbnail.py`：静态图懒生成 400px WebP 缩略图，缓存在 `.cache/thumbs/`（按 sha256 命名）；先写临时文件再改名，按 EXIF 摆正方向；视频和 GIF 不生成（返回 204）。
   - `core/inbox.py`：收件箱与平台列表查询。
-  - `server/static/index.html` 为占位页，真正的前端在 M1b 加入。
   - 运行时依赖新增 starlette、uvicorn（均为纯 Python，符合 ADR 0003）；测试依赖新增 httpx2。
 - **许可证与公开准备**：`LICENSE`（GPL-2.0-or-later，GNU 官方原文；与计划在 M3 调用的 gallery-dl 的 GPL-2.0-only 兼容，且保留升级到 GPL-3.0 的余地）；README 改为面向外部读者；CONTRIBUTING 新增"对外贡献者"一节。公开时机：M1 全部完成后。
 - **前端风格指南**：`docs/frontend-style.md`——双主题跟随系统、CSS 变量、系统字体、缩略图网格、收件箱键盘操作、技术选型（Vue 3 + Pinia + 手写组件，不用组件库）、明确推迟项。

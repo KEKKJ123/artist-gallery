@@ -26,18 +26,25 @@ jobs:
       - run: python -m pytest -q -rs
 
   hygiene:
-    # 文件卫生：带 BOM 的 .py 在 Linux 上会直接 SyntaxError；CRLF 会让"构建产物一致性检查"和 diff 变得嘈杂。
-    # 这类问题在 Windows 上很难察觉（PowerShell 5.1 的 `Set-Content -Encoding utf8` 会悄悄加 BOM），所以由 CI 兜底。
+    # 文件卫生：统一文本文件不带 BOM，避免读入字符串后 ast.parse 等工具报错。
+    # PowerShell 5.1 的 `Set-Content -Encoding utf8` 会悄悄加 BOM，所以由 CI 兜底。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: 不允许提交带 BOM 的文本文件
+        shell: bash
         run: |
-          bad=$(git ls-files '*.py' '*.js' '*.vue' '*.css' '*.html' '*.md' '*.json' '*.yml' '*.toml' '*.sql' '*.svg' \
-            | while read -r f; do [ -f "$f" ] && [ "$(head -c3 "$f" | xxd -p)" = "efbbbf" ] && echo "$f"; done)
+          bad=$(git ls-files -z '*.py' '*.js' '*.vue' '*.css' '*.html' '*.md' '*.json' '*.yml' '*.toml' '*.sql' '*.svg' \
+            | while IFS= read -r -d '' f; do
+                # 不用末尾的 && 链：正常文件的条件为假时，循环仍应成功，不能触发 bash -e 退出。
+                # -z / -d '' 按 NUL 分隔路径，中文不会被 git 转义，空格也不会被 read 裁掉。
+                if [ -f "$f" ] && [ "$(head -c3 "$f" | xxd -p)" = "efbbbf" ]; then
+                  printf '%s\n' "$f"
+                fi
+              done)
           if [ -n "$bad" ]; then
             echo "::error::以下文件以 UTF-8 BOM 开头，请去掉（用 VS Code：右下角编码 → 通过编码保存 → UTF-8）："
-            echo "$bad"
+            printf '%s\n' "$bad"
             exit 1
           fi
 

@@ -6,9 +6,15 @@
 
 ## 功能现状
 
+进度与设计文档 [第 9 节里程碑](docs/design.md) 保持一致：
+
 - [x] **M0** 命令行建库、导入（sha256 去重、文件名识别来源、收件箱）、统计
-- [x] **M1a** 本地网页服务启动、收件箱列表 API、缩略图懒生成
-- [ ] **M1** 收件箱批量整理界面（粘贴链接、打 tag、合并作品）
+- [ ] **M1** 收件箱批量整理界面
+  - [x] M1a 本地网页服务、收件箱列表接口、缩略图
+  - [ ] M1b 前端骨架、缩略图网格、多选
+  - [ ] M1c 粘贴链接识别、归档为作品、画师绑定、撤销
+  - [ ] M1d tag（补全、别名、默认 tag）
+  - [ ] M1e 扫描找回被挪动的文件
 - [ ] **M2** 浏览、搜索、画师页、作品页
 - [ ] **M3** 内置下载器（gallery-dl）
 - [ ] **M4** Android APK（Briefcase + CI 自动发布）
@@ -16,7 +22,11 @@
 
 完整设计见 [docs/design.md](docs/design.md)，技术决策见 [docs/decisions/](docs/decisions/)。
 
-## 快速开始
+> 目前网页界面还只是占位页，整理图片要等 M1b、M1c 完成。现阶段可以用命令行建库、导入和查看统计。
+
+## 快速开始（电脑）
+
+需要 Python 3.12 或更高版本。以 Windows 为例：
 
 ```bash
 python -m venv .venv
@@ -26,23 +36,49 @@ python -m venv .venv
 .venv\Scripts\artist-gallery init D:\MyGallery
 
 # 导入图片（只复制，不删源文件）
-.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片 -n   # 预演
-.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入
+.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片 -n   # 预演：看看会怎么归档，不做任何改动
+.venv\Scripts\artist-gallery import D:\MyGallery D:\下载\图片      # 正式导入，完成后会询问是否删除源文件
 
 # 统计
 .venv\Scripts\artist-gallery status D:\MyGallery
 
-# 启动网页服务（M1a，浏览器打开 http://localhost:8765）
+# 启动网页服务，浏览器打开 http://localhost:8765
 .venv\Scripts\artist-gallery serve D:\MyGallery
 ```
 
-> 需要 Python 3.12+。图片、数据库、cookies 均被 `.gitignore` 排除，不会进仓库。
+Linux / macOS 把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
+
+## 快速开始（Android 手机，Termux）
+
+在有 APK 之前（M4），可以用 [Termux](https://termux.dev/) 在手机上运行。这条路径面向愿意折腾的用户。
+
+```bash
+pkg install python python-pillow git
+git clone <本仓库地址> ~/artist-gallery        # 放在 Termux 自己的目录，不要放 /sdcard
+cd ~/artist-gallery
+python -m venv .venv --system-site-packages     # 复用系统装好的 Pillow
+. .venv/bin/activate
+pip install -e .                                # 不要加 [dev]：其中的 ruff 需要在手机上编译 Rust
+
+artist-gallery init ~/gallery
+artist-gallery serve ~/gallery                  # 然后用手机浏览器打开 http://localhost:8765
+```
+
+要在手机上跑测试，额外执行 `pip install pytest httpx2`。
+
+## 把图库带到手机上
+
+图库就是一个普通文件夹（`library.db` + `images/`），**整个复制过去**即可，数据库里只存相对路径。
+
+- 不用关服务也能复制：数据库不使用 WAL（见 [ADR 0006](docs/decisions/0006-wal-不开启.md)），图库里没有 `-wal`、`-shm` 之类的附属文件。只要避开正在导入或整理的瞬间就行。
+- 缩略图缓存目录 `.cache/` 不需要复制，用到时会自动重新生成。
+- 同一时间只在一端修改图库：两端都改会各自产生记录，目前还没有合并功能（计划在 M5）。
 
 ## 技术栈
 
 - Python 3.12 + SQLite + Pillow
-- Starlette + uvicorn（纯 Python，无原生扩展，兼容 Android Termux）
-- 前端 Vue 3 + Vite（M1b 起，构建产物提交进仓库，使用时不依赖 Node）
+- Starlette + uvicorn（纯 Python，无原生扩展，兼容 Android）
+- 前端 Vue 3 + Vite（M1b 起；构建产物提交进仓库，所以使用时不需要 Node）
 
 ## 许可证
 
@@ -50,4 +86,6 @@ python -m venv .venv
 
 ## 贡献
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。`main` 只通过 Pull Request 合入，CI 必须通过（Windows / Ubuntu × Python 3.12 / 3.14）。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。`main` 只通过 Pull Request 合入，CI 必须通过（Windows / Ubuntu × Python 3.12 / 3.14）。开发约定见 [AGENTS.md](AGENTS.md)。
+
+> 本仓库只存代码和文档。图片、数据库、cookies 均被 `.gitignore` 排除，不会进仓库。

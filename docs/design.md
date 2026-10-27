@@ -1,6 +1,6 @@
 # 画师图库 设计文档 v0.7（2026-10-27）
 
-> v0.7 变更：撤销最近一次归档提前到 M1c（归档不弹确认、靠撤销兜底；不可撤销的操作仍须确认）；界面风格见 `docs/frontend-style.md`。
+> v0.7 变更：撤销最近一次归档提前到 M1c（归档不弹确认、靠撤销兜底；不可撤销的操作仍须确认）；界面风格见 `docs/frontend-style.md`。同日整理：第 3 节标注为概念模型并列出与实际结构的差异；第 4 节 CLI 补全 `init` / `serve`；2.1 节确认档位明确为三档。
 > v0.6 变更：按 188 个真实样本校准识别规则（Pixiv 单页 `标题_ID`、Zerochan、X media key、排除哈希/时间戳）；视频跳过并报告；新增第 10 节未来构想（画质优选）。视频与图片同样分类导入，不做缩略图和画质处理。
 > v0.5 变更：归档文件名改为 `{platform}_{post_id}_p{page}`；第 4 节识别规则按实际实现更新（M0 导入已完成）。
 > v0.4 变更：Android 默认图库改放 App 私有目录、零存储权限，Photo Picker/SAF 导入；共享文件夹为可选高级项。见 ADR 0004。
@@ -29,7 +29,7 @@
   - 依赖约束：运行时依赖必须是纯 Python，或在 Chaquopy 包仓库中有现成包（ADR 0003）。
 - 代码分层：`core/`（纯逻辑）→ `server/`（Starlette API + 静态文件）→ `frontend/`（Vue 3 + Vite 构建的静态页面）。
 - 运行方式：
-  - PC：`python -m artist_gallery serve <图库目录>`，浏览器打开 localhost。
+  - PC：`artist-gallery serve <图库目录>`（等价于 `python -m artist_gallery serve <图库目录>`），浏览器打开 localhost。
   - Android（普通用户）：安装 APK。App 启动时在后台线程运行同一个 server，全屏 WebView 加载 localhost。APK 由 Briefcase 打包、GitHub Actions 编译。
   - Android（开发者）：Termux 里 `pip install` 同一个包，浏览器打开 localhost。
   - 手机在线：访问 PC 的局域网地址。
@@ -50,14 +50,17 @@
   - 批量改 tag（加 / 删 / 替换）、批量改画师、批量合并 / 拆分作品
   - 每次批量操作都写操作日志（op_log），支持**撤销最近一次**，可连续撤销（倒序逐条，不跳着撤）。不可逆记录（如 `delete_source`）不进撤销栈；撤销前校验当前状态，不一致则保留现状并报错。
   - **撤销没实现的操作不得免确认**：按里程碑（M1c 归档、M1d 打 tag、M1e 其余）逐项交付撤销，交付前一律按"大范围"处理，先清单后确认。
-  - 预览与确认按影响范围分两档（ADR 0007，v0.7 起）：
-    - **小范围**（收件箱归档、打 tag、合并作品等，作用于当前选中的少量图）：操作面板里**实时显示预览**（如"将重命名为 `pixiv_123_p0.png`"），`Enter` 即执行，**不弹确认框**，完成后提示条带"撤销"按钮。
-    - **大范围**（改模板后重排全库、批量移动整个文件夹等，一次动成百上千个文件）：**先显示完整"A → B"清单，确认后才执行**；同样可撤销。
-    - **不可撤销**的操作（删除源文件、永久删除）：任何情况下都必须显式确认（ADR 0005）。
+  - 预览与确认分三档（ADR 0007，v0.7 起；"小范围免确认"只对撤销已交付的操作生效，见上一条）：
+    - **小范围、可撤销**（收件箱归档、打 tag、合并作品等，作用于当前选中的少量图）：操作面板里**实时显示预览**（如"将重命名为 `pixiv_123_p0.png`"），`Enter` 即执行，**不弹确认框**，完成后提示条带"撤销"按钮。
+    - **大范围、可撤销**（改模板后重排全库、批量移动整个文件夹等，一次动成百上千个文件）：**先显示完整"A → B"清单，确认后才执行**；同样可撤销。
+    - **不可撤销**（删除源文件、永久删除）：任何情况下都必须显式确认（ADR 0005）。
 - **外部改动**：如果在资源管理器里手动挪了文件，下次启动或手动"重新扫描"时按 sha256 找回，更新路径；找不到的标为"丢失"，不自动删除记录。
 - **安全**：移动采用"先复制 → 校验 hash → 再删原文件"，中途出错不丢图。
 
 ## 3. 数据模型
+> 下面是**概念模型**，用来讲清楚各表的关系，省略了约束和索引。**实际结构以 `src/artist_gallery/core/schema.sql` 加 `db.py` 的 `MIGRATIONS` 为准**（当前 v4）。
+> 与概念模型相比，实际多出：`platform.builtin`（内置平台标记）、`image.missing`（重新扫描时找不到文件）、`image.orig_name`（导入时的原文件名）、`image.source_hint`（中置信的来源建议，JSON）。
+> 内置平台（pixiv / x / zerochan）的识别规则写在 `core/platforms.py`，每次打开图库时同步进表，其 `file_regex` 列为空；只有自定义平台使用这一列。
 ```sql
 CREATE TABLE platform (            -- 平台配置，小众平台在这里加
   id TEXT PRIMARY KEY,             -- 'pixiv' / 'x' / 'lofter' ...
@@ -65,7 +68,7 @@ CREATE TABLE platform (            -- 平台配置，小众平台在这里加
   post_url  TEXT,                  -- 'https://www.pixiv.net/artworks/{post_id}'
   user_url  TEXT,                  -- 'https://www.pixiv.net/users/{uid}'
   url_regex TEXT,                  -- 从粘贴的链接里解析 post_id / handle
-  file_regex TEXT                  -- 从文件名里解析 post_id / page
+  file_regex TEXT                  -- 从文件名里解析 post_id / page（仅自定义平台使用）
 );
 CREATE TABLE artist  (id INTEGER PRIMARY KEY, name TEXT NOT NULL, note TEXT);
 CREATE TABLE account (
@@ -118,7 +121,11 @@ tag 命名空间约定：`character:红豆`、`series:明日方舟`、`meta:R-18
 - 用 sha256 去重：库里已有或同批次重复的文件跳过，**源文件不动**。
 - 目标重名时追加 `_2`、`_3`。损坏/非图片文件报错并保留源文件。
 - 自定义平台：在 platform 表里写 `file_regex`（命名组 `post_id`、可选 `page`），就能参与识别。
-- CLI：`artist-gallery import <图库> <文件或文件夹...> [--delete-source ask|yes|no] [-n/--dry-run] [-v]`；`artist-gallery status <图库>`。
+- CLI（`artist-gallery --help` 查看全部）：
+  - `init <图库>`：新建图库（已存在则报错，不覆盖）。
+  - `import <图库> <文件或文件夹...> [--delete-source ask|yes|no] [-n/--dry-run] [--no-recursive] [-v]`：导入。
+  - `status <图库>`：统计。
+  - `serve <图库> [--host 127.0.0.1] [--port 8765]`：启动网页界面。默认只允许本机访问；`--host` 设为非本机地址即开放局域网（无登录保护，会提示）。
 
 ## 5. 手动整理（重点：批量、少点鼠标）
 "收件箱"页面：

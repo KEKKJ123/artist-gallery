@@ -15,7 +15,8 @@
 | `src/artist_gallery/server/` | Starlette API + 静态文件托管（M1 起才有） | 可改；只做参数解析和调用 core |
 | `android/` 或 Briefcase 配置 | APK 打包（M4 起才有） | 可改 |
 | `tests/` | pytest 测试 | 可改；新功能要带测试 |
-| `frontend/` | Vue 前端（M1 起才有） | 可改 |
+| `frontend/` | Vue 3 + Vite 前端源码 | 可改；**改完必须 `npm run build` 并把 `src/artist_gallery/server/static/` 的变化一起提交**（见下文"前端开发"） |
+| `src/artist_gallery/server/static/` | 前端构建产物 | **只由 `npm run build` 生成，不手改**；提交进仓库，CI 会检查它和源码是否一致 |
 | `docs/design.md` | 设计文档，唯一的需求来源 | 改需求前先和红豆确认 |
 | `docs/frontend-style.md` | 前端风格与交互约定 | 做 `frontend/` 前先读；改风格先和红豆确认 |
 | `docs/decisions/` | 设计决策记录（ADR） | 只追加，不改历史条目 |
@@ -47,6 +48,19 @@
 - 测试依赖 `httpx2`（Starlette 的 TestClient 需要），装 `.[dev]` 时已包含。
 - 数据库**不开 WAL**（ADR 0006）：图库靠复制文件夹同步，不要自行加 `PRAGMA journal_mode=WAL`。
 - server 的请求处理器写成普通 `def`（在线程池里跑），每个请求用 `db.connect()` 自己开关连接，不要跨线程共用连接。
+
+### 前端开发（`frontend/`）
+需要 Node ≥ 22.12（或 20.19+），只有改前端的人才需要装；只用程序的人不需要（构建产物已提交）。
+```
+cd frontend
+npm ci                 # 按 package-lock.json 装依赖
+npm test               # 单元测试（vitest）
+npm run build          # 构建，产物直接写进 ../src/artist_gallery/server/static/
+npm run dev            # 开发服务器 http://localhost:5173，接口代理到本机已启动的 artist-gallery serve（8765）
+```
+- **改了 `frontend/` 就要重新 `npm run build`，并提交 `static/` 的变化。** 忘了的话 CI 的 `frontend` 任务会报错。
+- 前端运行时依赖要尽量少（现在只有 vue、pinia、@lucide/vue）；加新依赖前先想"手写能不能解决"（见 `docs/frontend-style.md` 第 8 节）。
+- 组件文件名用大驼峰（`ThumbCell.vue`）。CI 跑在区分大小写的 Linux 上，`import` 路径的大小写必须和文件名逐字一致，否则 Windows 上正常、CI 里报错。
 - Termux 上安装：Pillow 用 `pkg install python-pillow`，venv 加 `--system-site-packages`；只装 `pip install -e . pytest`，**不要装 `.[dev]`**（ruff 是 Rust 写的，会在手机上现场编译）。
 
 ## 代码风格

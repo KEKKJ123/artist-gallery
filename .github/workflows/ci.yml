@@ -24,3 +24,29 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: python -m pytest -q -rs
+
+  frontend:
+    # 前端：跑单元测试，并检查"提交进仓库的构建产物"和源码是否一致。
+    # 产物提交进仓库是为了让手机 Termux 不装 Node 也能用；代价是改了源码忘记重新构建就会过期，由这里兜底。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: 构建产物必须已提交且与源码一致
+        working-directory: .
+        run: |
+          git add -N src/artist_gallery/server/static
+          if ! git diff --exit-code --stat -- src/artist_gallery/server/static; then
+            echo "::error::前端构建产物与源码不一致。请在 frontend/ 下运行 npm run build，并提交 src/artist_gallery/server/static/ 的改动。"
+            exit 1
+          fi

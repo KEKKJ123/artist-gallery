@@ -40,12 +40,14 @@ def test_video_classified_like_images(lib, tmp_path):
     report = import_files(lib, [d])
     by_name = {i.src.name: i for i in report.items}
     assert by_name["Video_24301078824427.mp4"].action is Action.INBOX
-    assert by_name["作品_123456789.mp4"].rel_path == "images/pixiv/pixiv_123456789_p0.mp4"
+    assert by_name["作品_123456789.mp4"].rel_path == "images/_inbox/作品_123456789.mp4"
     mk = by_name["EO2cBcJWoAAJJWf.jpeg"]
     assert mk.action is Action.HINT and mk.rel_path.startswith("images/_inbox/")
     conn = db.connect(lib)
-    hint = conn.execute("SELECT source_hint FROM image WHERE source_hint IS NOT NULL").fetchone()
-    assert hint[0] == '{"platform": "x", "post_id": null, "page": null}'
+    hint = conn.execute(
+        "SELECT platform, post_id, page FROM source_evidence WHERE platform='x'"
+    ).fetchone()
+    assert tuple(hint) == ("x", None, None)
     conn.close()
 
 
@@ -61,9 +63,11 @@ def test_import_copies_and_classifies(lib, src):
     by_name = {i.src.name: i for i in report.items}
     assert len(report.items) == 5  # txt 被忽略
 
-    assert by_name["123456789_p0.png"].rel_path == "images/pixiv/pixiv_123456789_p0.png"
-    assert by_name["123456789_p1.png"].rel_path == "images/pixiv/pixiv_123456789_p1.png"
-    assert by_name["1849000000000000000_1.jpg"].rel_path == "images/x/x_1849000000000000000_p0.jpg"
+    assert by_name["123456789_p0.png"].rel_path == "images/_inbox/123456789_p0.png"
+    assert by_name["123456789_p1.png"].rel_path == "images/_inbox/123456789_p1.png"
+    assert (
+        by_name["1849000000000000000_1.jpg"].rel_path == "images/_inbox/1849000000000000000_1.jpg"
+    )
     assert by_name["GxAbC12xyzQ.jpg"].action is Action.INBOX
     assert by_name["GxAbC12xyzQ.jpg"].rel_path == "images/_inbox/GxAbC12xyzQ.jpg"
     assert by_name["红豆 12345678.png"].action is Action.HINT
@@ -74,21 +78,16 @@ def test_import_copies_and_classifies(lib, src):
         assert (lib / it.rel_path).is_file()
 
     conn = db.connect(lib)
-    # 同一 Pixiv 作品的两页归到同一个 work
-    works = conn.execute(
-        "SELECT COUNT(DISTINCT work_id) FROM image WHERE rel_path LIKE 'images/pixiv/%'"
-    ).fetchone()[0]
-    assert works == 1
-    assert conn.execute("SELECT COUNT(*) FROM work").fetchone()[0] == 2
-    assert conn.execute("SELECT COUNT(*) FROM image WHERE work_id IS NULL").fetchone()[0] == 2
-    hint = conn.execute(
-        "SELECT source_hint, orig_name FROM image WHERE source_hint IS NOT NULL"
-    ).fetchone()
-    assert '"post_id": "12345678"' in hint[0] and hint[1] == "红豆 12345678.png"
-    # 路径全部是相对路径、正斜杠
-    for (p,) in conn.execute("SELECT rel_path FROM image"):
-        assert "\\" not in p and ":" not in p
-    assert conn.execute("SELECT COUNT(*) FROM op_log WHERE kind = 'import'").fetchone()[0] == 5
+    assert conn.execute("SELECT COUNT(*) FROM image WHERE state='inbox'").fetchone()[0] == 5
+    assert (
+        conn.execute("SELECT COUNT(*) FROM image_source WHERE status='confirmed'").fetchone()[0]
+        == 0
+    )
+    assert conn.execute("SELECT COUNT(*) FROM post").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM image_source").fetchone()[0] == 4
+    for (path,) in conn.execute("SELECT rel_path FROM image_file"):
+        assert "\\" not in path and ":" not in path
+    assert conn.execute("SELECT COUNT(*) FROM op_log WHERE kind='import'").fetchone()[0] == 5
     conn.close()
 
 
@@ -147,7 +146,7 @@ def test_cli_interactive_confirm(lib, src, monkeypatch):
 
 def test_dry_run_changes_nothing(lib, src):
     report = import_files(lib, [src], dry_run=True)
-    assert report.counts()[Action.AUTO] == 3
+    assert report.counts()[Action.HINT] == 4
     assert (src / "123456789_p0.png").exists()
     assert not (lib / "images" / "pixiv").exists()
     conn = db.connect(lib)
@@ -242,8 +241,8 @@ def test_cli_import_and_status(lib, src, capsys):
 def test_safe_stem_truncates_by_bytes():
     # 纯函数测试，任何平台都能跑：120 个汉字 = 360 字节
     s = _safe_stem("長" * 120)
-    assert len(s.encode("utf-8")) <= 150
-    assert s == "長" * 50  # 按完整字符截断，不会切出半个 UTF-8 字符
+    assert len(s.encode("utf-8")) <= 250
+    assert s == "長" * 83  # 按完整字符截断，不会切出半个 UTF-8 字符
 
 
 def test_long_inbox_name_is_truncated(lib, tmp_path):
@@ -256,14 +255,18 @@ def test_long_inbox_name_is_truncated(lib, tmp_path):
         pytest.skip(f"当前文件系统不支持超长文件名：{e}")
     report = import_files(lib, [tmp_path / "s"])
     name = report.items[0].rel_path.rsplit("/", 1)[1]
-    assert len(name.encode("utf-8")) <= 200
+    assert len(name.encode("utf-8")) <= 255
     assert (lib / report.items[0].rel_path).is_file()
 
 
 @pytest.mark.parametrize(
     ("stem", "expected"),
     [
-        ("CON", "_CON"),  # Windows 保留名（这种文件在 Windows 上建不出来，但可能从手机拷来）
+        ("CON", "_CON"),
+        (
+            "CON.data",
+            "_CON.data",
+        ),  # Windows 保留名（这种文件在 Windows 上建不出来，但可能从手机拷来）
         ("a:b?c", "a_b_c"),  # Linux/Android 允许、Windows 不允许的字符
         ("trailing. ", "trailing"),
         ("", "unnamed"),
@@ -289,3 +292,37 @@ def test_library_inside_source_is_skipped(tmp_path):
     # 从图库的上级目录导入：图库里已有的文件不能被再次扫进来
     report = import_files(root, [tmp_path])
     assert all(not str(i.src).startswith(str(root)) for i in report.items)
+
+
+def test_preserves_legal_name_and_extension_case(lib, tmp_path):
+    src = make_image(tmp_path / "s" / "原来的中文标题.PNG", (8, 9, 1))
+    report = import_files(lib, [src])
+    assert report.items[0].rel_path == "images/_inbox/原来的中文标题.PNG"
+
+
+def test_existing_untracked_collision_is_not_overwritten(lib, tmp_path):
+    target = lib / "images" / "_inbox" / "SAME.png"
+    target.write_bytes(b"untracked")
+    src = make_image(tmp_path / "s" / "same.png", (8, 9, 1))
+    report = import_files(lib, [src])
+    assert report.items[0].rel_path == "images/_inbox/same_2.png"
+    assert target.read_bytes() == b"untracked"
+
+
+def test_db_write_failure_cleans_only_new_copy(lib, tmp_path, monkeypatch):
+    import artist_gallery.core.importer as mod
+
+    src = make_image(tmp_path / "s" / "a.png")
+
+    def fail(*args):
+        raise RuntimeError("failed to record evidence")
+
+    monkeypatch.setattr(mod, "record_filename", fail)
+    result = import_files(lib, [src])
+    assert result.items[0].action is Action.ERROR
+    assert src.exists()
+    assert not list((lib / "images" / "_inbox").iterdir())
+    conn = db.connect(lib)
+    assert conn.execute("SELECT COUNT(*) FROM image").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM image_file").fetchone()[0] == 0
+    conn.close()

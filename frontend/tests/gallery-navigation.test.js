@@ -33,20 +33,20 @@ function start() {
 }
 
 it('启动读取并规整地址栏，显式 force 加载；没有图库 store 也能导航', async () => {
-  window.history.replaceState(null, '', '/?folder=a//b/')
+  window.history.replaceState(null, '', '/?view=archived&junk=1')
   start()
   await flushPromises()
-  expect(setView).toHaveBeenCalledWith({ kind: 'folder', path: 'a/b' }, { force: true })
-  expect(window.location.search).toBe('?folder=a%2Fb')
+  expect(setView).toHaveBeenCalledWith({ kind: 'archived' }, { force: true })
+  expect(window.location.search).toBe('?view=archived')
 })
 
 it('手机选目录会关抽屉，桌面不会；筛选同样进地址栏', async () => {
   start()
   await flushPromises()
   expect(navigation.drawerOpen.value).toBe(true)
-  navigation.goFolder('pixiv')
+  navigation.go({kind:'archived'})
   expect(navOpen.value).toBe(false)
-  expect(window.location.search).toBe('?folder=pixiv')
+  expect(window.location.search).toBe('?view=archived')
   mq.matches = false
   mq.addEventListener.mock.calls[0][1]()
   navOpen.value = true
@@ -60,9 +60,9 @@ it('popstate 只切换视图，不新增历史；卸载清掉两个监听器', a
   start()
   await flushPromises()
   const push = vi.spyOn(window.history, 'pushState')
-  window.history.replaceState(null, '', '/?folder=x')
+  window.history.replaceState(null, '', '/?view=archived')
   window.dispatchEvent(new PopStateEvent('popstate'))
-  expect(setView).toHaveBeenLastCalledWith({ kind: 'folder', path: 'x' })
+  expect(setView).toHaveBeenLastCalledWith({ kind: 'archived' })
   expect(push).not.toHaveBeenCalled()
   wrapper.unmount()
   expect(mq.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function))

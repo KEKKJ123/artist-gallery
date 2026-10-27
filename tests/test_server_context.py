@@ -20,9 +20,11 @@ def test_two_apps_keep_separate_libraries(tmp_path: Path) -> None:
     conn = db.open_library(a)
     try:
         with conn:
+            image_id = conn.execute("INSERT INTO image DEFAULT VALUES").lastrowid
             conn.execute(
-                "INSERT INTO image (rel_path, sha256) VALUES (?, ?)",
-                ("images/_inbox/a.png", "a" * 64),
+                "INSERT INTO image_file (image_id, rel_path, sha256, orig_name) "
+                "VALUES (?, ?, ?, ?)",
+                (image_id, "images/_inbox/a.png", "a" * 64, "a.png"),
             )
     finally:
         conn.close()
@@ -51,5 +53,5 @@ def test_request_connection_does_not_repeat_startup_migrations(
     migrate = Mock(side_effect=AssertionError("请求不应执行迁移"))
     monkeypatch.setattr(db, "open_library", migrate)
     assert client.get("/api/inbox").status_code == 200
-    assert client.get("/api/folders").status_code == 200
+    assert client.get("/api/navigation").status_code == 200
     migrate.assert_not_called()

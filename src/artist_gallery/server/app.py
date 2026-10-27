@@ -38,8 +38,8 @@ def create_app(library_root: Path, *, allow_any_host: bool = False) -> Starlette
 
     routes = [
         Route("/api/inbox", api.api_inbox),
-        Route("/api/folders", api.api_folders),
-        Route("/api/folder", api.api_folder_images),
+        Route("/api/navigation", api.api_navigation),
+        Route("/api/archived", api.api_archived),
         Route("/api/platforms", api.api_platforms),
         Route("/api/{rest:path}", api.api_not_found),
         Route("/thumbs/{sha256}", media.serve_thumb),

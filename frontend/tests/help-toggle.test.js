@@ -11,12 +11,12 @@ vi.mock('../src/lib/api.js', async () => {
   return {
     ...actual,
     fetchInbox: vi.fn(),
-    fetchFolder: vi.fn(),
-    fetchFolders: vi.fn(),
+    fetchArchived: vi.fn(),
+    fetchNavigation: vi.fn(),
     fetchPlatforms: vi.fn(),
   }
 })
-import { fetchFolders, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
+import { fetchNavigation, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
 
 const items = [1, 2].map((id) => ({
   id,
@@ -44,7 +44,7 @@ beforeEach(async () => {
     removeEventListener: vi.fn(),
   })))
   fetchInbox.mockResolvedValue({ total: items.length, items })
-  fetchFolders.mockResolvedValue({ inbox: 2, inbox_hinted: 0, archived: 0, folders: [] })
+  fetchNavigation.mockResolvedValue({ inbox: 2, inbox_hinted: 0, archived: 0, folders: [] })
   fetchPlatforms.mockResolvedValue([])
   const pinia = createPinia()
   wrapper = mount(App, {

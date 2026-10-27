@@ -1,9 +1,9 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../src/stores/library.js'
-import { fetchFolders, fetchPlatforms } from '../src/lib/api.js'
+import { fetchNavigation, fetchPlatforms } from '../src/lib/api.js'
 
-vi.mock('../src/lib/api.js', () => ({ fetchFolders: vi.fn(), fetchPlatforms: vi.fn() }))
+vi.mock('../src/lib/api.js', () => ({ fetchNavigation: vi.fn(), fetchPlatforms: vi.fn() }))
 const nav = (n) => ({ inbox: n, inbox_hinted: n, archived: n, folders: [] })
 let library
 beforeEach(() => {
@@ -15,8 +15,8 @@ beforeEach(() => {
 describe('图库级资料', () => {
   it('旧导航慢返回时，不能覆盖更新的统计', async () => {
     let release
-    fetchFolders.mockReturnValueOnce(new Promise((r) => (release = r)))
-    fetchFolders.mockResolvedValueOnce(nav(9))
+    fetchNavigation.mockReturnValueOnce(new Promise((r) => (release = r)))
+    fetchNavigation.mockResolvedValueOnce(nav(9))
     const old = library.loadNav()
     await library.loadNav()
     release(nav(1))
@@ -25,12 +25,12 @@ describe('图库级资料', () => {
   })
 
   it('新导航失败也不能让更旧的在途请求覆盖已显示的统计', async () => {
-    fetchFolders.mockResolvedValueOnce(nav(5))
+    fetchNavigation.mockResolvedValueOnce(nav(5))
     await library.loadNav()
     let release
-    fetchFolders.mockReturnValueOnce(new Promise((r) => (release = r)))
+    fetchNavigation.mockReturnValueOnce(new Promise((r) => (release = r)))
     const old = library.loadNav()
-    fetchFolders.mockRejectedValueOnce(new Error('offline'))
+    fetchNavigation.mockRejectedValueOnce(new Error('offline'))
     await library.loadNav()
     release(nav(1))
     await old
@@ -58,7 +58,7 @@ describe('图库级资料', () => {
   })
 
   it('平台失败后可重试，不影响独立的导航刷新', async () => {
-    fetchFolders.mockResolvedValue(nav(3))
+    fetchNavigation.mockResolvedValue(nav(3))
     fetchPlatforms.mockRejectedValueOnce(new Error('offline'))
     await library.refresh()
     expect(library.nav).toEqual(nav(3))

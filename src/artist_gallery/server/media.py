@@ -16,7 +16,10 @@ def serve_thumb(request: Request) -> Response:
     if rel_path is None:
         return Response(status_code=404)
     root = library_root(request)
-    dest = get_or_create(root, sha256, root / rel_path)
+    source = (root / rel_path).resolve()
+    if not source.is_relative_to(root / "images"):
+        return Response(status_code=403)
+    dest = get_or_create(root, sha256, source)
     if dest is None:
         return Response(status_code=204)
     # 缩略图按内容哈希命名，内容永不改变，可以放心长期缓存
@@ -29,7 +32,7 @@ def serve_thumb(request: Request) -> Response:
 
 def serve_image(request: Request) -> Response:
     """GET /images/{rel_path} — 原图。只允许访问图库的 images/ 目录。"""
-    base = (library_root(request) / "images").resolve()
+    base = library_root(request) / "images"
     target = (base / request.path_params["rel_path"]).resolve()
     if not target.is_relative_to(base):  # 挡住 ../ 和指向外部的符号链接
         return Response(status_code=403)

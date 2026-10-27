@@ -9,14 +9,14 @@ from pathlib import Path
 
 from artist_gallery import __version__
 from artist_gallery.core import db
+from artist_gallery.core.browse import navigation
 from artist_gallery.core.importer import Action, ImportItem, delete_sources, import_files
 from artist_gallery.netinfo import LanAddress, lan_addresses
 
 _ACTION_LABEL = {
-    Action.AUTO: "自动归档",
     Action.HINT: "收件箱(有建议)",
     Action.INBOX: "收件箱",
-    Action.DUP: "重复跳过",
+    Action.DUP: "复用已有",
     Action.ERROR: "失败",
 }
 
@@ -26,7 +26,7 @@ def _format_item(it: ImportItem, verbose: bool) -> str | None:
     if it.action is Action.INBOX and not verbose:
         return None
     parts = [f"[{_ACTION_LABEL[it.action]}] {it.src.name}"]
-    if it.rel_path and (it.action is Action.AUTO or verbose):
+    if it.rel_path and verbose:
         parts.append(f"-> {it.rel_path}")
     if it.action is Action.HINT and it.recognition:
         r = it.recognition
@@ -41,7 +41,7 @@ def _format_item(it: ImportItem, verbose: bool) -> str | None:
 def _cmd_init(args: argparse.Namespace) -> int:
     try:
         path = db.init_library(Path(args.root))
-    except FileExistsError as e:
+    except (OSError, RuntimeError, sqlite3.DatabaseError) as e:
         print(f"错误：{e}", file=sys.stderr)
         return 1
     print(f"已创建图库：{path}")
@@ -85,6 +85,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
     summary = "，".join(f"{_ACTION_LABEL[a]} {c[a]}" for a in Action if c[a])
     prefix = "【预演，未做任何改动】" if report.dry_run else ""
     print(f"\n{prefix}共 {len(report.items)} 个文件：{summary}")
+    if not report.dry_run:
+        added = sum(i.evidence_added for i in report.items)
+        print(f"新增来源线索 {added} 条（不代表已核查）")
 
     deletable = report.deletable()
     if deletable:
@@ -117,18 +120,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
         def count(table: str, where: str = "1") -> int:
             return conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}").fetchone()[0]
 
-        inbox = count("image", "work_id IS NULL")
-        hinted = count("image", "work_id IS NULL AND source_hint IS NOT NULL")
+        nav = navigation(conn)
         print(f"图库：{root.resolve()}")
         print(f"  图片      {count('image')}")
-        print(f"  作品      {count('work')}")
-        print(f"  收件箱    {inbox}（其中有来源建议 {hinted}）")
+        print(f"  文件版本  {count('image_file')}")
+        print(f"  收件箱    {nav['inbox']}（其中有来源建议 {nav['inbox_hinted']}）")
+        print(f"  已归档    {nav['archived']}")
         print(f"  画师      {count('artist')}")
         print(f"  tag       {count('tag')}")
         for row in conn.execute(
-            "SELECT platform, COUNT(*) FROM source GROUP BY platform ORDER BY 2 DESC"
+            "SELECT p.platform,COUNT(*) FROM image_source s JOIN post p ON p.id=s.post_id "
+            "GROUP BY p.platform ORDER BY 2 DESC"
         ):
-            print(f"  来源 {row[0]:<10}{row[1]}")
+            print(f"  来源（含待核查） {row[0]:<10}{row[1]}")
     finally:
         conn.close()
     return 0

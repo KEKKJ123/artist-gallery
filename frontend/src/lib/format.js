@@ -3,7 +3,7 @@
 const PLATFORM_NAMES = { pixiv: 'Pixiv', x: 'X', zerochan: 'Zerochan' }
 
 /**
- * 把后端的 source_hint 变成角标文字。
+ * 把后端 source_hints 中的一条建议变成显示文字。
  * hint 形如 { platform: 'pixiv', post_id: '12345678', page: 0 }；
  * post_id 为空表示"只知道大概来自哪个平台"（X 网页另存的 media key）。
  * 没有建议返回 null。
@@ -33,4 +33,13 @@ export function extLabel(ext) {
 /** 是不是视频。GIF 按图片处理（不生成缩略图，但不是视频）。 */
 export function isVideo(ext) {
   return ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v'].includes((ext || '').toLowerCase())
+}
+
+/** 来源 ID 只是标题显示，不取代图片身份；未知页码不伪造 p0。 */
+export function imageCaption(item) {
+  const known = item.sources?.find(s => s.status === 'confirmed')
+  const hint = item.source_hints?.find(s => s.post_id)
+  const source = known || hint
+  if (source?.post_id) return `${known ? '' : '疑似 '}${source.post_id}${source.page == null ? '' : `_p${source.page}`}`
+  return item.orig_name || '未命名'
 }

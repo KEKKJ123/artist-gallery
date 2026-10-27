@@ -15,7 +15,7 @@ const inbox = useInboxStore()
 const library = useLibraryStore()
 const item = computed(() => inbox.previewItem)
 const video = computed(() => item.value && isVideo(item.value.ext))
-const badge = computed(() => (item.value ? hintBadge(item.value.source_hint, library.platformNames) : null))
+const badge = computed(() => (item.value ? hintBadge(item.value.source_hints?.[0], library.platformNames) : null))
 const pos = computed(() => {
   const i = inbox.ids.indexOf(inbox.previewId)
   return i === -1 ? '' : `${i + 1} / ${inbox.ids.length}`
@@ -75,7 +75,7 @@ defineExpose({ view, pct })
       <span class="title">{{ item.orig_name || item.rel_path }}</span>
       <span v-if="badge" class="hint">
         <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="18" />
-        {{ hintLabel(item.source_hint) }}
+        {{ hintLabel(item.source_hints?.[0]) }}
       </span>
       <span class="pos">{{ pos }}</span>
       <template v-if="canZoom">

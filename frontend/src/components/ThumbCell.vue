@@ -1,6 +1,6 @@
 <script setup>
 import { Check, Film, Image, ImageOff } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { aspectRatio, extLabel, isVideo, imageCaption } from '../lib/format.js'
 import { hintBadge } from '../lib/platforms.js'
 import PlatformBadge from './PlatformBadge.vue'
@@ -23,6 +23,11 @@ const ratio = computed(() => (props.square ? 1 : aspectRatio(props.item)))
 const badge = computed(() => hintBadge(props.item.source_hints?.[0], props.platformNames))
 const video = computed(() => isVideo(props.item.ext))
 const noThumb = computed(() => !props.item.thumb_url || failed.value)
+const displayUnassigned = computed(() => props.item.display_status === 'unassigned')
+watch(() => props.item.thumb_url, () => {
+  failed.value = false
+  loaded.value = false
+})
 
 // 长按（触屏）：500ms 不动算长按；期间手指移动或抬起则取消
 let timer = null
@@ -38,6 +43,7 @@ function down(e) {
 function cancel() {
   clearTimeout(timer)
 }
+onBeforeUnmount(cancel)
 function onClick(e) {
   if (longFired) {
     longFired = false // 长按触发过，抬手那一下不再当作点击
@@ -54,7 +60,7 @@ function onClick(e) {
     role="option"
     :aria-selected="selected"
     :data-id="item.id"
-    :title="item.orig_name || item.rel_path"
+    :title="item.orig_name || item.rel_path || `图片 #${item.id}`"
     @click="onClick"
     @dblclick="emit('dblclick', $event)"
     @pointerdown="down"
@@ -78,10 +84,11 @@ function onClick(e) {
       <div v-else class="placeholder">
         <Film v-if="video" :size="28" />
         <!-- 破图图标只用于"本该有却加载失败/文件丢了"；GIF 没有缩略图是设计如此，用普通图片图标 -->
-        <ImageOff v-else-if="item.missing || failed" :size="28" />
+        <ImageOff v-else-if="displayUnassigned || item.missing || failed" :size="28" />
         <Image v-else :size="28" />
         <span class="ext">{{ extLabel(item.ext) }}</span>
-        <span v-if="item.missing" class="gone">文件丢失</span>
+        <span v-if="displayUnassigned" class="gone">展示文件待设置</span>
+        <span v-else-if="item.missing" class="gone">文件丢失</span>
       </div>
 
       <!-- 来源建议：左下角站点标志（品牌色方块 + 首字母）。ID 不放在格子里，看右侧面板或大图预览 -->

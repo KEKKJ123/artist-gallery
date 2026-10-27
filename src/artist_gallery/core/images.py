@@ -12,7 +12,8 @@ from artist_gallery.core.media import THUMB_EXTS
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_LIMIT = 500
-IMAGE_FROM = "image i JOIN image_file f ON f.image_id=i.id AND f.is_display=1"
+# 展示版本缺失时仍保留逻辑图片，不让列表条目数与总数悄悄分叉。
+IMAGE_FROM = "image i LEFT JOIN image_file f ON f.image_id=i.id AND f.is_display=1"
 IMAGE_COLUMNS = (
     "i.id, i.state, i.artist_id, i.added_at, f.id AS file_id, f.rel_path, f.sha256,"
     " f.orig_name, f.width, f.height, f.missing"
@@ -25,7 +26,9 @@ HAS_HINT = """EXISTS (
 
 def image_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     """基础投影，批量附加关系见 images_to_list。"""
-    ext = PurePosixPath(row["rel_path"]).suffix.lower()
+    has_display = row["file_id"] is not None
+    ext = PurePosixPath(row["rel_path"]).suffix.lower() if has_display else ""
+    display_status = "unassigned" if not has_display else ("missing" if row["missing"] else "ok")
     return {
         **{
             k: row[k]
@@ -41,8 +44,14 @@ def image_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             )
         },
         "missing": bool(row["missing"]),
+        "display_status": display_status,
+        "display_message": "展示文件待设置" if not has_display else None,
         "thumb_url": f"/thumbs/{row['sha256']}" if ext in THUMB_EXTS else None,
-        "file_url": "/images/" + quote(row["rel_path"].removeprefix("images/"), safe="/"),
+        "file_url": (
+            "/images/" + quote(row["rel_path"].removeprefix("images/"), safe="/")
+            if has_display
+            else None
+        ),
         "ext": ext,
     }
 

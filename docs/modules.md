@@ -24,7 +24,7 @@ core/thumbnail.py              缩略图生成（Pillow），共用 media.py 的
 - 只读查询不依赖 `importer`、`thumbnail` 或 Pillow；新增共用能力放在真正所属模块，不能随手挂到收件箱上。
 - `core` 不依赖 `server` / Web 框架。处理器保持普通 `def`，每次请求在 `context.connection` 内开关连接。
 - `db.open_library` 负责启动时的校验、迁移和平台同步；请求里的 `db.connect` 只连接已经校验过的图库。
-- T1 删除 `/api/folder(s)`，新增 `/api/navigation`、`/api/archived`；列表用 `source_hints` 数组，不保留旧单建议字段。`image_tag` 直连图片，文件投影来自唯一展示版本，不依赖 work／组。
+- T1 删除 `/api/folder(s)`，新增 `/api/navigation`、`/api/archived`；列表用 `source_hints` 数组，不保留旧单建议字段。`image_tag` 直连图片，文件投影可为空：左连接唯一展示版本，无标记时返回 `display_status=unassigned` 占位，不丢逻辑图片、不自动写库；不依赖 work／组。
 
 ## 前端
 

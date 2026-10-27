@@ -28,10 +28,12 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hints
 
     <section v-else-if="one" class="detail">
       <dl>
+        <dt v-if="one.display_status === 'unassigned'">展示状态</dt>
+        <dd v-if="one.display_status === 'unassigned'">展示文件待设置；未自动选择其他版本。</dd>
         <dt>原文件名</dt>
         <dd>{{ one.orig_name || '—' }}</dd>
         <dt>图库路径</dt>
-        <dd class="mono">{{ one.rel_path }}</dd>
+        <dd class="mono">{{ one.rel_path || '—' }}</dd>
         <dt v-if="one.width">尺寸</dt>
         <dd v-if="one.width">{{ one.width }} × {{ one.height }}</dd>
         <dt>画师</dt>

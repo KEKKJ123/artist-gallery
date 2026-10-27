@@ -14,6 +14,7 @@ const props = defineProps({ suspended: Boolean })
 const inbox = useInboxStore()
 const library = useLibraryStore()
 const item = computed(() => inbox.previewItem)
+const unavailable = computed(() => item.value?.display_status === 'unassigned' || !item.value?.file_url)
 const video = computed(() => item.value && isVideo(item.value.ext))
 const badge = computed(() => (item.value ? hintBadge(item.value.source_hints?.[0], library.platformNames) : null))
 const pos = computed(() => {
@@ -26,7 +27,12 @@ const {
   resetView, zoomIn, zoomOut, toggleZoom, pan,
   onImgLoad, onWheel, onPointerDown, onPointerMove, onPointerUp,
   onDblClick, onBackdropClick,
-} = usePreviewViewport({ mediaId: () => inbox.previewId, video, onClose: inbox.closePreview })
+} = usePreviewViewport({
+  mediaId: () => `${inbox.previewId}:${item.value?.file_id ?? ''}:${item.value?.file_url ?? ''}`,
+  video,
+  zoomDisabled: () => unavailable.value,
+  onClose: inbox.closePreview,
+})
 
 // 预览打开时，键盘由这里接管
 function onKey(e) {
@@ -72,7 +78,7 @@ defineExpose({ view, pct })
 <template>
   <div v-if="item" class="overlay" role="dialog" aria-label="大图预览">
     <div class="bar">
-      <span class="title">{{ item.orig_name || item.rel_path }}</span>
+      <span class="title">{{ item.orig_name || item.rel_path || `图片 #${item.id}` }}</span>
       <span v-if="badge" class="hint">
         <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="18" />
         {{ hintLabel(item.source_hints?.[0]) }}
@@ -119,7 +125,8 @@ defineExpose({ view, pct })
       @dblclick="onDblClick"
     >
       <!-- key：切图时强制重建，避免上一张的画面残留 -->
-      <video v-if="video" :key="item.id" :src="item.file_url" controls autoplay muted loop playsinline />
+      <p v-if="unavailable" role="status">展示文件待设置；未自动选择其他版本。</p>
+      <video v-else-if="video" :key="item.id" :src="item.file_url" controls autoplay muted loop playsinline />
       <img
         v-else
         :key="item.id"

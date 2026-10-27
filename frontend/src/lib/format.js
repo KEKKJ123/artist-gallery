@@ -41,5 +41,5 @@ export function imageCaption(item) {
   const hint = item.source_hints?.find(s => s.post_id)
   const source = known || hint
   if (source?.post_id) return `${known ? '' : '疑似 '}${source.post_id}${source.page == null ? '' : `_p${source.page}`}`
-  return item.orig_name || '未命名'
+  return item.orig_name || (item.id != null ? `图片 #${item.id}` : '未命名')
 }

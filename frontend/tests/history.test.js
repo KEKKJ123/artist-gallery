@@ -46,7 +46,7 @@ function fakeWindow(url = '/') {
 describe('readInitialView', () => {
   it('从地址栏读出视图', () => {
     expect(readInitialView(fakeWindow('/'))).toEqual(INBOX_VIEW)
-    expect(readInitialView(fakeWindow('/?folder=pixiv'))).toEqual({ kind: 'folder', path: 'pixiv' })
+    expect(readInitialView(fakeWindow('/?view=archived'))).toEqual({ kind: 'archived' })
   })
 })
 
@@ -54,40 +54,40 @@ describe('syncHistory', () => {
   it('push 写入历史；相同视图不重复写', () => {
     const w = fakeWindow('/')
     const h = syncHistory(() => INBOX_VIEW, vi.fn(), w)
-    h.push({ kind: 'folder', path: 'pixiv' })
-    h.push({ kind: 'folder', path: 'pixiv' })
-    h.push({ kind: 'folder', path: '/pixiv/' }) // 规整后相同
-    expect(w._stack).toEqual(['/', '/?folder=pixiv'])
+    h.push({ kind: 'archived' })
+    h.push({ kind: 'archived' })
+    h.push({ kind: 'archived' }) // 规整后相同
+    expect(w._stack).toEqual(['/', '/?view=archived'])
   })
 
   it('后退 / 前进时通知上层，视图取自当时的地址栏', () => {
     const w = fakeWindow('/')
     const nav = vi.fn()
     const h = syncHistory(() => INBOX_VIEW, nav, w)
-    h.push({ kind: 'folder', path: 'a' })
-    h.push({ kind: 'folder', path: 'a/b' })
+    h.push({ kind: 'archived' })
+    h.push({ kind: 'inbox', filter: 'hint' })
     w.back()
-    expect(nav).toHaveBeenLastCalledWith({ kind: 'folder', path: 'a' })
+    expect(nav).toHaveBeenLastCalledWith({ kind: 'archived' })
     w.back()
     expect(nav).toHaveBeenLastCalledWith(INBOX_VIEW)
     w.forward()
-    expect(nav).toHaveBeenLastCalledWith({ kind: 'folder', path: 'a' })
+    expect(nav).toHaveBeenLastCalledWith({ kind: 'archived' })
   })
 
   it('后退之后再 push，会丢掉"前进"那一段（和浏览器一致）', () => {
     const w = fakeWindow('/')
     const h = syncHistory(() => INBOX_VIEW, vi.fn(), w)
-    h.push({ kind: 'folder', path: 'a' })
+    h.push({ kind: 'archived' })
     w.back()
-    h.push({ kind: 'folder', path: 'b' })
-    expect(w._stack).toEqual(['/', '/?folder=b'])
+    h.push({ kind: 'inbox', filter: 'nohint' })
+    expect(w._stack).toEqual(['/', '/?filter=nohint'])
   })
 
   it('align：把不规整的地址换成干净写法，且不新增历史', () => {
     const w = fakeWindow('/?folder=a//b/')
-    const h = syncHistory(() => ({ kind: 'folder', path: 'a/b' }), vi.fn(), w)
+    const h = syncHistory(() => ({ kind: 'inbox', filter: 'hint' }), vi.fn(), w)
     h.align()
-    expect(w._stack).toEqual(['/?folder=a%2Fb'])
+    expect(w._stack).toEqual(['/?filter=hint'])
   })
 
   it('align：已经一致时什么也不做', () => {
@@ -101,7 +101,7 @@ describe('syncHistory', () => {
     const w = fakeWindow('/')
     const nav = vi.fn()
     const h = syncHistory(() => INBOX_VIEW, nav, w)
-    h.push({ kind: 'folder', path: 'a' })
+    h.push({ kind: 'archived' })
     h.stop()
     expect(w._listeners.size).toBe(0)
     w.back()

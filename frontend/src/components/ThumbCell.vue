@@ -1,7 +1,7 @@
 <script setup>
 import { Check, Film, Image, ImageOff } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { aspectRatio, extLabel, isVideo } from '../lib/format.js'
+import { aspectRatio, extLabel, isVideo, imageCaption } from '../lib/format.js'
 import { hintBadge } from '../lib/platforms.js'
 import PlatformBadge from './PlatformBadge.vue'
 
@@ -20,7 +20,7 @@ const failed = ref(false) // 缩略图加载失败（文件丢了、损坏）
 const loaded = ref(false)
 
 const ratio = computed(() => (props.square ? 1 : aspectRatio(props.item)))
-const badge = computed(() => hintBadge(props.item.source_hint, props.platformNames))
+const badge = computed(() => hintBadge(props.item.source_hints?.[0], props.platformNames))
 const video = computed(() => isVideo(props.item.ext))
 const noThumb = computed(() => !props.item.thumb_url || failed.value)
 
@@ -88,10 +88,11 @@ function onClick(e) {
       <span v-if="badge" class="hint-logo" :title="badge.tooltip">
         <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="badgeSize" />
       </span>
+      <span v-if="item.source_hints?.length > 1" class="badge">{{ item.source_hints.length }} 条建议</span>
       <span class="check" aria-hidden="true"><Check :size="14" /></span>
       <span v-if="!noThumb && (video || item.ext === '.gif')" class="badge">{{ extLabel(item.ext) }}</span>
     </div>
-    <div class="name">{{ item.orig_name || item.rel_path }}</div>
+    <div class="name">{{ imageCaption(item) }}</div>
   </div>
 </template>
 
@@ -202,22 +203,6 @@ img.loaded {
   outline-style: solid;
 }
 
-/* 文件名默认不显示；悬停或选中才出现。触屏没有悬停，只在选中时显示 */
-.name {
-  display: none;
-  padding: 2px 2px 0;
-  font-size: 12px;
-  color: var(--fg-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.selected .name {
-  display: block;
-}
-@media (hover: hover) {
-  .cell:hover .name {
-    display: block;
-  }
-}
+/* 固定一行，选中／悬停不改变高度。 */
+.name { display: block; height: 20px; line-height: 20px; padding: 0 2px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

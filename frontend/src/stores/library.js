@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchFolders, fetchPlatforms } from '../lib/api.js'
+import { fetchNavigation, fetchPlatforms } from '../lib/api.js'
 
 /** 图库级资料不属于某一组图片；各视图共享，失败时保留已有资料。 */
 export const useLibraryStore = defineStore('library', () => {
-  const nav = ref({ inbox: 0, inbox_hinted: 0, archived: 0, folders: [] })
+  const nav = ref({ inbox: 0, inbox_hinted: 0, archived: 0 })
   const platformNames = ref({})
   let navEpoch = 0
   let platformsLoaded = false
@@ -13,7 +13,7 @@ export const useLibraryStore = defineStore('library', () => {
   async function loadNav() {
     const mine = ++navEpoch
     try {
-      const next = await fetchFolders()
+      const next = await fetchNavigation()
       if (mine === navEpoch) nav.value = next
     } catch {
       // 导航失败不妨碍看图；旧统计继续保留。

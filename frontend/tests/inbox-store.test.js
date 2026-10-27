@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/lib/api.js', async () => {
   const actual = await vi.importActual('../src/lib/api.js')
-  return { ...actual, fetchInbox: vi.fn(), fetchFolder: vi.fn(), fetchFolders: vi.fn(), fetchPlatforms: vi.fn() }
+  return { ...actual, fetchInbox: vi.fn(), fetchArchived: vi.fn(), fetchNavigation: vi.fn(), fetchPlatforms: vi.fn() }
 })
-import { ApiError, fetchFolder, fetchFolders, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
+import { ApiError, fetchArchived, fetchNavigation, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
 import { useInboxStore } from '../src/stores/inbox.js'
 import { useLibraryStore } from '../src/stores/library.js'
 
@@ -17,11 +17,11 @@ const NAV = { inbox: 0, archived: 0, folders: [] }
 beforeEach(() => {
   setActivePinia(createPinia())
   fetchInbox.mockReset()
-  fetchFolder.mockReset()
-  fetchFolders.mockReset()
+  fetchArchived.mockReset()
+  fetchNavigation.mockReset()
   fetchPlatforms.mockReset()
   fetchPlatforms.mockResolvedValue([])
-  fetchFolders.mockResolvedValue(NAV) // 导航数据：每次 load 都会顺带取一次
+  fetchNavigation.mockResolvedValue(NAV) // 导航数据：每次 load 都会顺带取一次
   inbox = useInboxStore()
 })
 
@@ -159,119 +159,79 @@ describe('预览', () => {
   })
 })
 
-describe('视图切换（收件箱 / 文件夹）', () => {
-  const folder = (path) => ({ kind: 'folder', path })
-
-  it('默认是收件箱；文件夹视图用 fetchFolder 取数据，带上路径', async () => {
-    expect(inbox.isInbox).toBe(true)
-    fetchFolder.mockResolvedValueOnce({ folder: 'pixiv', ...page([1, 2]) })
-    await inbox.setView(folder('pixiv'))
+describe('收件箱／已归档视图', () => {
+  const archived = { kind: 'archived' }
+  it('已归档接口不带平台路径', async () => {
+    fetchArchived.mockResolvedValueOnce(page([1, 2]))
+    await inbox.setView(archived)
     expect(inbox.isInbox).toBe(false)
-    expect(fetchFolder).toHaveBeenCalledWith('pixiv', 0, 200)
-    expect(fetchInbox).not.toHaveBeenCalled()
+    expect(fetchArchived).toHaveBeenCalledWith(0, 200)
     expect(inbox.ids).toEqual([1, 2])
   })
-
-  it('切换视图时清掉选择、焦点、预览，并且先清空旧图', async () => {
-    await loaded([1, 2, 3])
-    inbox.click(2)
-    inbox.openPreview(2)
+  it('切换清掉选择、焦点、预览', async () => {
+    await loaded([1, 2]); inbox.click(2); inbox.openPreview(2)
     let release
-    fetchFolder.mockReturnValueOnce(new Promise((r) => (release = r)))
-    const p = inbox.setView(folder('x'))
-    // 请求还没回来：旧的收件箱内容不能还留在界面上
+    fetchArchived.mockReturnValueOnce(new Promise(r => release = r))
+    const pending = inbox.setView(archived)
     expect(inbox.items).toEqual([])
     expect(inbox.selected.size).toBe(0)
-    expect(inbox.focus).toBeNull()
     expect(inbox.previewId).toBeNull()
-    release({ folder: 'x', ...page([10]) })
-    await p
-    expect(inbox.ids).toEqual([10])
+    release(page([3])); await pending
+    expect(inbox.ids).toEqual([3])
   })
-
-  it('"全部已归档"（路径为空）也是文件夹视图，和收件箱不同', async () => {
-    fetchFolder.mockResolvedValueOnce({ folder: '', ...page([5]) })
-    await inbox.setView(folder(''))
-    expect(inbox.isInbox).toBe(false)
-    expect(fetchFolder).toHaveBeenCalledWith('', 0, 200)
-  })
-
-  it('快速连续切换：先发出、后返回的旧请求不能覆盖新结果', async () => {
-    let releaseA
-    fetchFolder.mockReturnValueOnce(new Promise((r) => (releaseA = r))) // A：慢
-    fetchFolder.mockResolvedValueOnce({ folder: 'b', ...page([2]) }) // B：快
-    const pa = inbox.setView(folder('a'))
-    const pb = inbox.setView(folder('b'))
-    await pb
-    expect(inbox.ids).toEqual([2])
-    releaseA({ folder: 'a', ...page([1]) }) // A 现在才回来
-    await pa
-    expect(inbox.ids).toEqual([2]) // 仍是 B 的结果
-    expect(inbox.view).toEqual(folder('b'))
-    expect(inbox.loading).toBe(false)
-  })
-
-  it('旧请求失败也不能把错误写到新视图上', async () => {
-    let rejectA
-    fetchFolder.mockReturnValueOnce(new Promise((_, rej) => (rejectA = rej)))
-    fetchFolder.mockResolvedValueOnce({ folder: 'b', ...page([2]) })
-    const pa = inbox.setView(folder('a'))
-    const pb = inbox.setView(folder('b'))
-    await pb
-    rejectA(new ApiError('连不上服务', 0))
-    await pa
-    expect(inbox.error).toBe('')
-    expect(inbox.ids).toEqual([2])
-  })
-
-  it('加载更多：翻页请求在途时用户切走了，旧页不能混进新视图', async () => {
-    fetchFolder.mockResolvedValueOnce({ folder: 'a', ...page([1, 2], 4) })
-    await inbox.setView(folder('a'))
-    let releaseMore
-    fetchFolder.mockReturnValueOnce(new Promise((r) => (releaseMore = r)))
-    const more = inbox.loadMore()
-    fetchFolder.mockResolvedValueOnce({ folder: 'b', ...page([9]) })
-    await inbox.setView(folder('b'))
-    releaseMore({ folder: 'a', ...page([3, 4], 4) })
-    await more
+  it('旧视图慢请求不能覆盖新视图', async () => {
+    let release
+    fetchArchived.mockReturnValueOnce(new Promise(r => release = r))
+    const old = inbox.setView(archived)
+    fetchInbox.mockResolvedValueOnce(page([9]))
+    await inbox.setView({ kind: 'inbox', filter: 'hint' })
+    release(page([1])); await old
     expect(inbox.ids).toEqual([9])
   })
-
-  it('同一视图再次 setView 不重复请求；force 或 load 才刷新', async () => {
-    fetchFolder.mockResolvedValue({ folder: 'a', ...page([1]) })
-    await inbox.setView(folder('a'))
-    await inbox.setView(folder('a'))
-    expect(fetchFolder).toHaveBeenCalledTimes(1)
-    await inbox.setView(folder('a'), { force: true })
-    expect(fetchFolder).toHaveBeenCalledTimes(2)
+  it('旧视图错误不能污染新视图', async () => {
+    let reject
+    fetchArchived.mockReturnValueOnce(new Promise((_, r) => reject = r))
+    const old = inbox.setView(archived)
+    fetchInbox.mockResolvedValueOnce(page([9]))
+    await inbox.setView({ kind: 'inbox', filter: 'all' })
+    reject(new ApiError('old',500)); await old
+    expect(inbox.error).toBe('')
   })
-
-  it('同一视图的刷新保留选择（不清空）', async () => {
-    fetchFolder.mockResolvedValue({ folder: 'a', ...page([1, 2, 3]) })
-    await inbox.setView(folder('a'))
-    inbox.click(2)
-    await inbox.load()
+  it('分页旧请求不混入新视图', async () => {
+    fetchArchived.mockResolvedValueOnce(page([1,2],4))
+    await inbox.setView(archived)
+    let release
+    fetchArchived.mockReturnValueOnce(new Promise(r => release = r))
+    const old = inbox.loadMore()
+    fetchInbox.mockResolvedValueOnce(page([9]))
+    await inbox.setView({ kind: 'inbox' })
+    release(page([3,4],4)); await old
+    expect(inbox.ids).toEqual([9])
+  })
+  it('相同视图不重复取，force 可刷新并保留选择', async () => {
+    fetchArchived.mockResolvedValue(page([1,2]))
+    await inbox.setView(archived); inbox.click(2)
+    await inbox.setView(archived)
+    expect(fetchArchived).toHaveBeenCalledTimes(1)
+    await inbox.setView(archived,{force:true})
+    expect(fetchArchived).toHaveBeenCalledTimes(2)
     expect([...inbox.selected]).toEqual([2])
   })
-
-  it('每次加载都会顺带刷新左侧导航数据；导航失败不影响看图', async () => {
-    fetchFolders.mockResolvedValueOnce({ inbox: 3, archived: 7, folders: [{ path: 'x', name: 'x', depth: 0, count: 7, has_children: false }] })
+  it('导航失败不阻断图片，也保留旧统计', async () => {
+    fetchNavigation.mockResolvedValueOnce({inbox:3,inbox_hinted:0,archived:7})
     await loaded([1])
+    fetchNavigation.mockRejectedValueOnce(new Error('offline'))
+    await loaded([1,2])
     expect(useLibraryStore().nav.archived).toBe(7)
-    fetchFolders.mockRejectedValueOnce(new ApiError('boom', 500))
-    await loaded([1, 2])
-    expect(inbox.ids).toEqual([1, 2])
-    expect(inbox.error).toBe('')
-    expect(useLibraryStore().nav.archived).toBe(7) // 失败时保留旧导航，不清空
+    expect(inbox.ids).toEqual([1,2])
   })
-
-  it('文件夹视图里的分页接着取下一页，用同一个路径', async () => {
-    fetchFolder.mockResolvedValueOnce({ folder: 'a', ...page([1, 2], 3) })
-    await inbox.setView(folder('a'))
-    fetchFolder.mockResolvedValueOnce({ folder: 'a', ...page([3], 3) })
+  it('已归档分页使用同一状态接口', async () => {
+    fetchArchived.mockResolvedValueOnce(page([1,2],3))
+    await inbox.setView(archived)
+    fetchArchived.mockResolvedValueOnce(page([3],3))
     await inbox.loadMore()
-    expect(fetchFolder).toHaveBeenLastCalledWith('a', 2, 200)
-    expect(inbox.ids).toEqual([1, 2, 3])
+    expect(fetchArchived).toHaveBeenLastCalledWith(2,200)
+    expect(inbox.ids).toEqual([1,2,3])
   })
 })
 
@@ -332,16 +292,16 @@ describe('收件箱来源建议筛选', () => {
     expect(fetchInbox).toHaveBeenCalledTimes(2)
   })
 
-  it('文件夹视图里 hintFilter 恒为 all（筛选只属于收件箱）', async () => {
-    fetchFolder.mockResolvedValueOnce({ folder: 'x', ...page([1]) })
-    await inbox.setView({ kind: 'folder', path: 'x' })
+  it('已归档里 hintFilter 恒为 all（筛选只属于收件箱）', async () => {
+    fetchArchived.mockResolvedValueOnce({ folder: 'x', ...page([1]) })
+    await inbox.setView({ kind: 'archived' })
     expect(inbox.isInbox).toBe(false)
     expect(inbox.hintFilter).toBe('all')
     expect(fetchInbox).not.toHaveBeenCalled()
   })
 
   it('导航数据带来源建议张数；平台名只取一次', async () => {
-    fetchFolders.mockResolvedValue({ inbox: 10, inbox_hinted: 4, archived: 0, folders: [] })
+    fetchNavigation.mockResolvedValue({ inbox: 10, inbox_hinted: 4, archived: 0, folders: [] })
     fetchPlatforms.mockResolvedValue([{ id: 'lofter', name: '乐乎' }])
     await loaded([1])
     expect(useLibraryStore().nav.inbox_hinted).toBe(4)

@@ -1,7 +1,7 @@
 <script setup>
 import {
   CircleHelp,
-  Folder,
+  Images,
   Inbox,
   LayoutGrid,
   Monitor,
@@ -15,9 +15,8 @@ import {
 import { computed } from 'vue'
 import { useInboxStore } from '../stores/inbox.js'
 import { SIZE_MAX, SIZE_MIN, usePrefsStore } from '../stores/prefs.js'
-import Breadcrumb from './Breadcrumb.vue'
 
-defineEmits(['help', 'navigate-folder'])
+defineEmits(['help'])
 const prefs = usePrefsStore()
 const inbox = useInboxStore()
 
@@ -25,7 +24,6 @@ const themeIcon = computed(() => ({ system: Monitor, light: Sun, dark: Moon })[p
 const themeLabel = computed(
   () => ({ system: '主题：跟随系统', light: '主题：浅色', dark: '主题：深色' })[prefs.theme],
 )
-const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.path : ''))
 </script>
 
 <template>
@@ -33,17 +31,17 @@ const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.pat
     <button
       class="icon"
       :aria-pressed="prefs.navOpen"
-      title="显示/隐藏文件夹列表"
-      aria-label="显示或隐藏文件夹列表"
+      title="显示/隐藏图库导航"
+      aria-label="显示或隐藏图库导航"
       @click="prefs.navOpen = !prefs.navOpen"
     >
       <PanelLeft :size="16" />
     </button>
 
     <div v-if="inbox.isInbox" class="brand"><Inbox :size="18" /> 收件箱</div>
-    <div v-else class="brand folder">
-      <Folder :size="18" class="ico" />
-      <Breadcrumb :path="folderPath" @navigate="(p) => $emit('navigate-folder', p)" />
+    <div v-else class="brand">
+      <Images :size="18" class="ico" />
+      已归档
     </div>
     <span class="count" :title="`共 ${inbox.total} 张`">
       <template v-if="inbox.loading && !inbox.items.length">加载中…</template>
@@ -112,13 +110,6 @@ const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.pat
   font-weight: 600;
   white-space: nowrap;
 }
-.brand.folder {
-  /* 文件夹名可能很长：允许收缩并省略，绝不能把顶栏撑出屏幕 */
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  font-weight: 400;
-}
 .count .short {
   display: none;
 }
@@ -181,10 +172,6 @@ button:disabled {
   .brand {
     flex: 0 1 auto;
     min-width: 0;
-  }
-  /* 面包屑可能很长：手机上只显示最后一级，其余可以点导航栏里的文件夹到达 */
-  .brand.folder :deep(li:not(:last-child)) {
-    display: none;
   }
 }
 </style>

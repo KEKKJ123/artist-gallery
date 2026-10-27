@@ -17,7 +17,7 @@ const prefs = usePrefsStore()
 const grid = ref(null)
 const helpOpen = ref(false)
 
-const { narrow, drawerOpen, go, goFolder, setFilter } = useGalleryNavigation({
+const { narrow, drawerOpen, go, setFilter } = useGalleryNavigation({
   getView: () => inbox.view,
   setView: inbox.setView,
   navOpen: () => prefs.navOpen,
@@ -35,7 +35,7 @@ useGalleryKeys({
 })
 
 const emptyTitle = computed(() => {
-  if (!inbox.isInbox) return '这个文件夹里还没有图'
+  if (!inbox.isInbox) return '还没有已归档的图片'
   if (inbox.hintFilter === 'hint') return '收件箱里没有带来源建议的图'
   if (inbox.hintFilter === 'nohint') return '收件箱里没有"没建议"的图了'
   return '收件箱是空的'
@@ -44,14 +44,15 @@ const emptyTitle = computed(() => {
 
 <template>
   <div class="app">
-    <TopBar @help="helpOpen = !helpOpen" @navigate-folder="goFolder" />
+    <TopBar @help="helpOpen = !helpOpen" />
 
     <div v-if="inbox.error" class="error" role="alert">
       <span>{{ inbox.error }}</span>
       <button @click="inbox.load()">重试</button>
     </div>
 
-    <!-- 收件箱专属：按来源建议筛选。文件夹视图里没有"来源建议"这个概念，不显示 -->
+    <div v-if="inbox.view.legacy" class="error" role="status">旧文件夹视图已移除，已回到收件箱；平台来源不再按目录分类。</div>
+    <!-- 收件箱专属筛选 -->
     <FilterBar v-if="inbox.isInbox" @change="setFilter" />
 
     <main
@@ -76,7 +77,7 @@ const emptyTitle = computed(() => {
             >，再点右上角的刷新。
           </p>
           <p v-else>
-            可以从左侧选别的文件夹，或回到
+            归档操作将在 T2 加入。现在可以回到
             <button class="linkish" @click="go({ kind: 'inbox' })">收件箱</button>。
           </p>
         </div>

@@ -1,19 +1,14 @@
 <script setup>
 import { computed } from 'vue'
 import { hintLabel } from '../lib/format.js'
-import { hintBadge } from '../lib/platforms.js'
 import { useInboxStore } from '../stores/inbox.js'
-import { useLibraryStore } from '../stores/library.js'
-import PlatformBadge from './PlatformBadge.vue'
 
 const inbox = useInboxStore()
-const library = useLibraryStore()
 const n = computed(() => inbox.selected.size)
 const one = computed(() => (n.value === 1 ? inbox.selectedItems[0] : null))
-const badge = computed(() => (one.value ? hintBadge(one.value.source_hint, library.platformNames) : null))
 
 // 选中的图里有多少带来源建议
-const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint).length)
+const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hints?.length).length)
 </script>
 
 <template>
@@ -39,13 +34,28 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint)
         <dd class="mono">{{ one.rel_path }}</dd>
         <dt v-if="one.width">尺寸</dt>
         <dd v-if="one.width">{{ one.width }} × {{ one.height }}</dd>
+        <dt>画师</dt>
+        <dd>{{ one.artist?.name || '未知' }}</dd>
+        <dt>内容 tag</dt>
+        <dd>{{ one.tags?.map(t => t.ns ? `${t.ns}:${t.name}` : t.name).join('、') || '无' }}</dd>
         <dt>来源建议</dt>
-        <dd class="hintrow">
-          <template v-if="badge">
-            <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="20" />
-            <span>{{ hintLabel(one.source_hint) }}</span>
-          </template>
-          <template v-else>无</template>
+        <dd>
+          <div v-for="(hint, i) in one.source_hints" :key="i" class="hintrow">
+            {{ hintLabel(hint) }}<span v-if="hint.page != null"> · p{{ hint.page }}</span>
+          </div>
+          <span v-if="!one.source_hints?.length">无</span>
+        </dd>
+        <dt>已确认来源</dt>
+        <dd>
+          <div
+            v-for="source in one.sources?.filter(s => s.status === 'confirmed')"
+            :key="`${source.platform}:${source.post_id}`"
+            class="hintrow"
+          >
+            {{ source.platform }}:{{ source.post_id }}<span v-if="source.page != null"> · p{{ source.page }}</span>
+            <div v-if="source.posted_at">发布于 {{ source.posted_at }}</div>
+          </div>
+          <span v-if="!one.sources?.some(s => s.status === 'confirmed')">无</span>
         </dd>
       </dl>
     </section>
@@ -56,11 +66,11 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint)
 
     <section v-if="inbox.isInbox" class="todo">
       <h3>归档与打 tag</h3>
-      <p>粘贴链接归档、绑定画师、打 tag 将在后续版本加入（M1c / M1d）。</p>
+      <p>粘贴链接归档、绑定画师、打 tag 将在后续版本加入（T2 / T3）。</p>
     </section>
     <section v-else class="todo">
       <h3>只读浏览</h3>
-      <p>文件夹视图目前只能查看，不能在这里移动或修改图片。</p>
+      <p>已归档视图当前只读，来源核查与编辑将在后续加入。</p>
     </section>
   </aside>
 </template>
@@ -121,9 +131,9 @@ dd {
   overflow-wrap: anywhere;
 }
 .hintrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 .mono {
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;

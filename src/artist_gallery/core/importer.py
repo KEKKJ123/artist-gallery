@@ -4,7 +4,7 @@
 2. `delete_sources()`：用户确认后才调用。删除前再校验一次"图库副本完好、源文件没被改过"。
 
 这样"删不删源文件"是导入完成后、看过结果再做的独立决定（CLI 里的确认提示，界面里的复选框）。
-视频和图片走同一套文件名识别与归档；只是不读取宽高（不引入视频解析依赖）。
+视频和图片走同一套文件名识别与收件箱导入；只是不读取宽高（不引入视频解析依赖）。
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import uuid
 from collections import Counter
 from collections.abc import Iterable
@@ -26,17 +27,17 @@ from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.layout import INBOX
 from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
 from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
+from artist_gallery.core.sources import record_filename
 
 
 class Action(StrEnum):
-    AUTO = "auto"  # 高置信，已归档到 images/{platform}/
-    HINT = "hint"  # 中置信，进收件箱并附建议
+    HINT = "hint"  # 高／中置信均进收件箱并附待审建议
     INBOX = "inbox"  # 未识别，进收件箱
-    DUP = "dup"  # 图库里已有相同文件，跳过（源文件不动）
+    DUP = "dup"  # 复用已有文件并记录新线索，源文件不动
     ERROR = "error"
 
 
-IMPORTED = frozenset({Action.AUTO, Action.HINT, Action.INBOX})
+IMPORTED = frozenset({Action.HINT, Action.INBOX})
 
 
 @dataclass
@@ -47,6 +48,8 @@ class ImportItem:
     recognition: Recognition | None = None
     message: str = ""
     sha256: str | None = None
+    file_id: int | None = None
+    evidence_added: bool = False
 
 
 @dataclass
@@ -103,15 +106,10 @@ def iter_media_files(paths: Iterable[Path], recursive: bool = True) -> list[Path
     return sorted(found)
 
 
-def _safe_id(s: str) -> str:
-    """文件名里只保留 [0-9A-Za-z-]，保证能被 OWN_FORMAT 反解析。"""
-    return "".join(c if c.isascii() and (c.isalnum() or c == "-") else "-" for c in s)
-
-
 # Windows / Android(FAT/exFAT/FUSE) 都不允许的字符，以及 Windows 的保留名
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])$", re.IGNORECASE)
-_MAX_STEM_BYTES = 150  # 多数文件系统单个文件名上限 255 字节，留出后缀和 _N 的余量
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.IGNORECASE)
+_MAX_STEM_BYTES = 250  # 支持格式最长扩展名 5 字节，重名后缀再按实际长度截断
 
 
 def _safe_stem(stem: str) -> str:
@@ -125,25 +123,32 @@ def _safe_stem(stem: str) -> str:
     return s or "unnamed"
 
 
-def _target_dir_and_stem(rec: Recognition, src: Path) -> tuple[PurePosixPath, str]:
-    if rec.confidence is Confidence.HIGH:
-        assert rec.platform and rec.post_id is not None
-        return (
-            PurePosixPath("images", rec.platform),
-            f"{rec.platform}_{_safe_id(rec.post_id)}_p{rec.page or 0}",
-        )
-    return INBOX, _safe_stem(src.stem)
-
-
 class _Importer:
     def __init__(self, root: Path, *, dry_run: bool) -> None:
         self.root = root
         self.dry_run = dry_run
-        self.conn = db.open_library(root)
-        self.rules: RuleSet = load_rules(self.conn)
+        self.conn = db.open_library(root, readonly=dry_run)
+        try:
+            self.rules: RuleSet = load_rules(self.conn)
+        except BaseException:
+            self.conn.close()
+            raise
         self.batch_id = uuid.uuid4().hex
-        # 本批次已占用的 rel_path（小写）。dry-run 时文件没真的落盘，只能靠它防重名。
-        self.reserved: set[str] = set()
+        # 一次读取占用名称，避免导入 N 个文件时反复遍历整个目录（O(N²)）。
+        parent = root / INBOX
+        try:
+            occupied = (
+                {str(INBOX / p.name).casefold() for p in parent.iterdir()}
+                if parent.is_dir()
+                else set()
+            )
+            occupied.update(
+                r[0].casefold() for r in self.conn.execute("SELECT rel_path FROM image_file")
+            )
+        except BaseException:
+            self.conn.close()
+            raise
+        self.reserved: set[str] = occupied
         self.seen_sha: set[str] = set()
 
     def close(self) -> None:
@@ -152,36 +157,27 @@ class _Importer:
     def _taken(self, rel: str) -> bool:
         # 一律按"不区分大小写"判断：Windows 和 Android 共享存储都不区分，
         # 否则 A.jpg 和 a.jpg 在 Linux 上各占一行、复制到手机就互相覆盖。
-        if rel.lower() in self.reserved or (self.root / rel).exists():
-            return True
-        return (
-            self.conn.execute(
-                "SELECT 1 FROM image WHERE rel_path = ? COLLATE NOCASE", (rel,)
-            ).fetchone()
-            is not None
-        )
+        return rel.casefold() in self.reserved or (self.root / rel).exists()
 
     def _unique_rel(self, folder: PurePosixPath, stem: str, ext: str) -> str:
-        rel = str(folder / f"{stem}{ext}")
         n = 1
-        while self._taken(rel):
+        while True:
+            suffix = "" if n == 1 else f"_{n}"
+            budget = 255 - len((suffix + ext).encode("utf-8"))
+            name = stem.encode("utf-8")[:budget].decode("utf-8", "ignore").rstrip(" .")
+            rel = str(folder / f"{name}{suffix}{ext}")
+            if not self._taken(rel):
+                break
             n += 1
-            rel = str(folder / f"{stem}_{n}{ext}")
-        self.reserved.add(rel.lower())
+        self.reserved.add(rel.casefold())
         return rel
 
-    def _work_for(self, platform: str, post_id: str) -> int:
-        row = self.conn.execute(
-            "SELECT work_id FROM source WHERE platform = ? AND post_id = ?", (platform, post_id)
-        ).fetchone()
-        if row:
-            return row[0]
-        work_id = self.conn.execute("INSERT INTO work DEFAULT VALUES").lastrowid
+    def _record(self, image_id: int, file_id: int, src: Path, rec: Recognition) -> bool:
         self.conn.execute(
-            "INSERT INTO source (work_id, platform, post_id) VALUES (?, ?, ?)",
-            (work_id, platform, post_id),
+            "INSERT INTO import_record (batch_id, file_id, orig_name) VALUES (?, ?, ?)",
+            (self.batch_id, file_id, src.name),
         )
-        return work_id
+        return record_filename(self.conn, image_id, file_id, src.name, rec)
 
     def import_one(self, src: Path) -> ImportItem:
         try:
@@ -189,10 +185,39 @@ class _Importer:
         except OSError as e:
             return ImportItem(src, Action.ERROR, message=f"读取失败：{e}")
 
-        dup = self.conn.execute("SELECT rel_path FROM image WHERE sha256 = ?", (sha,)).fetchone()
-        if dup or sha in self.seen_sha:
-            where = dup[0] if dup else "本批次中的另一文件"
-            return ImportItem(src, Action.DUP, message=f"与 {where} 相同")
+        rec = recognize(src.stem, self.rules)
+        dup = self.conn.execute(
+            "SELECT id, image_id, rel_path FROM image_file WHERE sha256=?", (sha,)
+        ).fetchone()
+        if dup:
+            target = (self.root / dup["rel_path"]).resolve()
+            if not target.is_relative_to(self.root / "images"):
+                return ImportItem(src, Action.ERROR, message="已有文件路径异常，未写入或覆盖")
+            try:
+                if not target.is_file() or sha256_file(target) != sha:
+                    return ImportItem(
+                        src,
+                        Action.ERROR,
+                        message="已有图库副本缺失或校验不一致，请先修复；源文件保留",
+                    )
+                added = False
+                if not self.dry_run:
+                    with self.conn:
+                        added = self._record(dup["image_id"], dup["id"], src, rec)
+                return ImportItem(
+                    src,
+                    Action.DUP,
+                    dup["rel_path"],
+                    rec,
+                    "已有文件，保留原整理结果",
+                    sha,
+                    dup["id"],
+                    added,
+                )
+            except (OSError, sqlite3.Error) as e:
+                return ImportItem(src, Action.ERROR, message=f"检查或记录已有文件失败：{e}")
+        if sha in self.seen_sha:  # 只用于预演；正式导入在前一条成功提交后按库查询
+            return ImportItem(src, Action.DUP, recognition=rec, message="与本批次中的另一文件相同")
 
         width = height = None
         if src.suffix.lower() in IMAGE_EXTS:
@@ -204,14 +229,15 @@ class _Importer:
             except Exception as e:  # noqa: BLE001 —— 任何解析失败都视为"不是图片"
                 return ImportItem(src, Action.ERROR, message=f"无法识别为图片：{e}")
 
-        rec = recognize(src.stem, self.rules)
-        action = {
-            Confidence.HIGH: Action.AUTO,
-            Confidence.MEDIUM: Action.HINT,
-            Confidence.NONE: Action.INBOX,
-        }[rec.confidence]
-        folder, stem = _target_dir_and_stem(rec, src)
-        rel = self._unique_rel(folder, stem, src.suffix.lower())
+        action = Action.INBOX if rec.confidence is Confidence.NONE else Action.HINT
+        # 合法原名与扩展名大小写尽量不变；识别建议永远不决定目录。
+        try:
+            rel = self._unique_rel(INBOX, _safe_stem(src.stem), src.suffix)
+            target = (self.root / rel).resolve()
+            if not target.is_relative_to(self.root / "images"):
+                raise ValueError("收件箱目录指向图库之外，未复制")
+        except (OSError, ValueError) as e:
+            return ImportItem(src, Action.ERROR, message=str(e))
         item = ImportItem(src, action, rel, rec, sha256=sha)
         if self.dry_run:
             self.seen_sha.add(sha)
@@ -225,26 +251,20 @@ class _Importer:
 
         try:
             with self.conn:
-                work_id = page = hint = None
-                if action is Action.AUTO:
-                    assert rec.platform and rec.post_id is not None
-                    work_id = self._work_for(rec.platform, rec.post_id)
-                    page = rec.page
-                elif action is Action.HINT:
-                    hint = json.dumps(
-                        {"platform": rec.platform, "post_id": rec.post_id, "page": rec.page}
-                    )
-                image_id = self.conn.execute(
-                    "INSERT INTO image (work_id, rel_path, sha256, page, width, height,"
-                    " orig_name, source_hint) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (work_id, rel, sha, page, width, height, src.name, hint),
+                image_id = self.conn.execute("INSERT INTO image DEFAULT VALUES").lastrowid
+                file_id = self.conn.execute(
+                    "INSERT INTO image_file (image_id, rel_path, sha256, width, height, orig_name)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (image_id, rel, sha, width, height, src.name),
                 ).lastrowid
+                item.file_id = file_id
+                item.evidence_added = self._record(image_id, file_id, src, rec)
                 self.conn.execute(
                     "INSERT INTO op_log (batch_id, kind, payload) VALUES (?, 'import', ?)",
                     (
                         self.batch_id,
                         json.dumps(
-                            {"image_id": image_id, "from": str(src), "to": rel},
+                            {"image_id": image_id, "file_id": file_id, "to": rel},
                             ensure_ascii=False,
                         ),
                     ),
@@ -270,7 +290,7 @@ def import_files(
     """把图片/视频复制进图库。不删除任何源文件——要删请在用户确认后调用 delete_sources()。
 
     dry_run=True 时只生成计划，不动任何文件、不写任何记录
-    （唯一例外：旧版图库仍会被升级数据库结构，这和打开图库时的行为一致）。
+    使用只读连接，不升级数据库或同步平台。
     """
     root = root.resolve()
     if not (root / db.DB_NAME).is_file():
@@ -304,7 +324,16 @@ def delete_sources(report: ImportReport) -> list[DeleteResult]:
     try:
         for it in report.deletable():
             assert it.sha256 and it.rel_path
-            copy = report.root / it.rel_path
+            row = conn.execute(
+                "SELECT rel_path, sha256 FROM image_file WHERE id=?", (it.file_id,)
+            ).fetchone()
+            if row is None or row["sha256"] != it.sha256:
+                results.append(DeleteResult(it, False, "图库记录已变化，保留源文件"))
+                continue
+            copy = (report.root / row["rel_path"]).resolve()
+            if not copy.is_relative_to(report.root.resolve() / "images"):
+                results.append(DeleteResult(it, False, "图库路径异常，保留源文件"))
+                continue
             try:
                 if not copy.is_file() or sha256_file(copy) != it.sha256:
                     results.append(DeleteResult(it, False, "图库副本缺失或已变化，保留源文件"))

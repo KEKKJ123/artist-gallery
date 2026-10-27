@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useImageCollection } from '../composables/use-image-collection.js'
 import { useImageSelection } from '../composables/use-image-selection.js'
-import { fetchFolder, fetchInbox } from '../lib/api.js'
+import { fetchArchived, fetchInbox } from '../lib/api.js'
 import { INBOX_VIEW, sameView } from '../lib/location.js'
 import { useLibraryStore } from './library.js'
 
@@ -15,8 +15,8 @@ export const useInboxStore = defineStore('inbox', () => {
   const library = useLibraryStore()
   const collection = useImageCollection((offset) => {
     const v = view.value
-    return v.kind === 'folder'
-      ? fetchFolder(v.path, offset, PAGE)
+    return v.kind === 'archived'
+      ? fetchArchived(offset, PAGE)
       : fetchInbox(offset, PAGE, v.filter ?? 'all')
   })
   const selection = useImageSelection(collection.items)
@@ -36,9 +36,9 @@ export const useInboxStore = defineStore('inbox', () => {
   async function setView(next, { force = false } = {}) {
     const changed = !sameView(view.value, next)
     if (!force && !changed && (collection.items.value.length || collection.loading.value)) return
-    view.value = next.kind === 'folder'
-      ? { kind: 'folder', path: next.path }
-      : { kind: 'inbox', filter: next.filter ?? 'all' }
+    view.value = next.kind === 'archived'
+      ? { kind: 'archived' }
+      : { kind: 'inbox', filter: next.filter ?? 'all', ...(next.legacy ? { legacy: true } : {}) }
     if (changed) {
       collection.reset()
       selection.reset()

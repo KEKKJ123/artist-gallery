@@ -40,9 +40,9 @@ def client(lib: Path) -> TestClient:
 class TestInbox:
     def test_lists_only_inbox(self, client: TestClient) -> None:
         data = client.get("/api/inbox").json()
-        assert data["total"] == 2  # 自动归档的那张不在收件箱
+        assert data["total"] == 3  # 识别成功也进入收件箱
         names = {i["orig_name"] for i in data["items"]}
-        assert names == {"截图 1.png", "anim.gif"}
+        assert names == {"截图 1.png", "anim.gif", "红豆 和 空格_12345678_p0.png"}
 
     def test_thumb_url_only_for_static(self, client: TestClient) -> None:
         items = {i["orig_name"]: i for i in client.get("/api/inbox").json()["items"]}
@@ -51,7 +51,7 @@ class TestInbox:
 
     def test_pagination(self, client: TestClient) -> None:
         data = client.get("/api/inbox?offset=1&limit=1").json()
-        assert data["total"] == 2 and len(data["items"]) == 1
+        assert data["total"] == 3 and len(data["items"]) == 1
 
     def test_limit_is_capped(self, client: TestClient) -> None:
         assert client.get("/api/inbox?limit=999999").json()["limit"] == 500
@@ -78,7 +78,9 @@ class TestThumbs:
 
     def test_gif_has_no_thumb_204(self, client: TestClient, lib: Path) -> None:
         conn = db.open_library(lib)
-        sha = conn.execute("SELECT sha256 FROM image WHERE rel_path LIKE '%.gif'").fetchone()[0]
+        sha = conn.execute("SELECT sha256 FROM image_file WHERE rel_path LIKE '%.gif'").fetchone()[
+            0
+        ]
         conn.close()
         assert client.get(f"/thumbs/{sha}").status_code == 204
 
@@ -98,7 +100,7 @@ class TestThumbs:
 
 class TestImages:
     def test_serves_archived_file(self, client: TestClient) -> None:
-        r = client.get("/images/pixiv/pixiv_12345678_p0.png")
+        r = client.get("/images/_inbox/红豆 和 空格_12345678_p0.png")
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/png"
 
@@ -130,60 +132,34 @@ class TestImages:
         assert serve_image(fake).status_code == 403  # type: ignore[arg-type]
 
 
-class TestFolders:
-    def test_tree_has_archived_folder_and_separate_inbox_count(self, client: TestClient) -> None:
-        t = client.get("/api/folders").json()
-        assert t["inbox"] == 2
-        assert t["archived"] == 1
-        assert [f["path"] for f in t["folders"]] == ["pixiv"]
-        assert t["folders"][0]["count"] == 1
+class TestStateBrowse:
+    def test_navigation_counts_suggestions(self, client):
+        assert client.get("/api/navigation").json() == {
+            "inbox": 3,
+            "inbox_hinted": 1,
+            "archived": 0,
+        }
 
-    def test_folder_listing_returns_items_the_grid_can_use(self, client: TestClient) -> None:
-        d = client.get("/api/folder", params={"path": "pixiv"}).json()
-        assert d["total"] == 1 and d["folder"] == "pixiv"
-        item = d["items"][0]
-        assert item["rel_path"] == "images/pixiv/pixiv_12345678_p0.png"
-        assert client.get(item["thumb_url"]).status_code == 200
-        assert client.get(item["file_url"]).status_code == 200
-
-    def test_empty_path_is_all_archived_and_excludes_inbox(self, client: TestClient) -> None:
-        d = client.get("/api/folder").json()
-        assert d["total"] == 1
-        assert all("_inbox" not in i["rel_path"] for i in d["items"])
-
-    def test_chinese_folder_name_via_query_param(self, lib: Path) -> None:
+    def test_archived_is_empty_until_explicit_state_change(self, client, lib):
+        assert client.get("/api/archived").json()["total"] == 0
         conn = db.open_library(lib)
-        conn.execute(
-            "INSERT INTO image (work_id, rel_path, sha256) VALUES (NULL, ?, ?)",
-            ("images/我的 收藏/红豆 1.png", "f" * 64),
-        )
-        conn.execute(
-            "UPDATE image SET work_id = (SELECT id FROM work LIMIT 1) WHERE sha256 = ?", ("f" * 64,)
-        )
-        conn.commit()
+        with conn:
+            conn.execute("UPDATE image SET state='archived' WHERE id=(SELECT MIN(id) FROM image)")
         conn.close()
-        c = TestClient(create_app(lib))
-        d = c.get("/api/folder", params={"path": "我的 收藏"}).json()
-        assert d["total"] == 1
-        names = [f["path"] for f in c.get("/api/folders").json()["folders"]]
-        assert "我的 收藏" in names
+        result = client.get("/api/archived").json()
+        assert result["total"] == 1
+        item = result["items"][0]
+        assert item["state"] == "archived"  # 查询不依赖路径
+        assert "_inbox/" in item["rel_path"]
+        assert client.get(item["file_url"]).status_code == 200
+        assert client.get("/api/navigation").json()["archived"] == 1
 
-    def test_unknown_folder_is_empty_200(self, client: TestClient) -> None:
-        r = client.get("/api/folder", params={"path": "不存在"})
-        assert r.status_code == 200 and r.json()["items"] == []
+    @pytest.mark.parametrize("endpoint", ["/api/folders", "/api/folder?path=pixiv"])
+    def test_old_folder_routes_are_not_silently_source_queries(self, client, endpoint):
+        assert client.get(endpoint).status_code == 404
 
-    @pytest.mark.parametrize("bad", ["..", "a/../b", "a\\b", "../library.db"])
-    def test_bad_paths_rejected_400(self, client: TestClient, bad: str) -> None:
-        r = client.get("/api/folder", params={"path": bad})
-        assert r.status_code == 400
-        assert r.headers["content-type"].startswith("application/json")
-
-    def test_bad_numbers_400(self, client: TestClient) -> None:
-        assert client.get("/api/folder?offset=x").status_code == 400
-
-    def test_pagination_params_work(self, client: TestClient) -> None:
-        d = client.get("/api/folder", params={"path": "", "limit": 1, "offset": 0}).json()
-        assert d["limit"] == 1 and len(d["items"]) == 1
+    def test_bad_numbers(self, client):
+        assert client.get("/api/archived?offset=x").status_code == 400
 
 
 class TestPlatforms:
@@ -240,5 +216,5 @@ class TestInboxFilterApi:
         assert client.get("/api/inbox?filter=").json()["filter"] == "all"
 
     def test_nav_payload_has_hinted_count(self, client: TestClient) -> None:
-        nav = client.get("/api/folders").json()
+        nav = client.get("/api/navigation").json()
         assert "inbox_hinted" in nav and 0 <= nav["inbox_hinted"] <= nav["inbox"]

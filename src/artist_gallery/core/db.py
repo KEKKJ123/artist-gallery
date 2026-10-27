@@ -1,7 +1,4 @@
-"""数据库连接、初始化与迁移。
-
-打开已有图库一律用 `open_library()`：它负责连接、迁移、同步内置平台，调用方不必记住顺序。
-"""
+"""新格式初始化、只读预检与版本升级。旧开发库在写入前拒绝。"""
 
 from __future__ import annotations
 
@@ -10,62 +7,102 @@ from importlib import resources
 from pathlib import Path
 
 DB_NAME = "library.db"
-
-# 结构变更：在末尾追加 SQL 字符串，不改已有条目。
-# 第 i 条（从 0 开始）把 user_version 从 i+1 升到 i+2；schema.sql 本身是版本 1。
-# 注意：内置平台的规则不再通过迁移修改，见 platforms.py。
-MIGRATIONS: list[str] = [
-    # v1 → v2（2026-10-26）：记录原始文件名和中置信来源建议；
-    # 给内置文件名正则加数字边界，避免 X 的长 ID 末尾被误认成 Pixiv ID。
-    # （v4 起内置平台规则由 sync_builtin_platforms 覆盖，这里对 platform 的修改
-    #   已无实际作用；按"不改已有迁移"的规则保留原样。v3 同理。）
-    r"""
-    ALTER TABLE image ADD COLUMN orig_name TEXT;
-    ALTER TABLE image ADD COLUMN source_hint TEXT;  -- JSON: {platform, post_id, page}
-    UPDATE platform SET file_regex = '(?<!\d)(?P<post_id>\d{6,10})_p(?P<page>\d+)'
-      WHERE id = 'pixiv';
-    UPDATE platform SET file_regex = '(?<![0-9A-Za-z])x_(?P<post_id>\d{15,20})_p(?P<page>\d+)'
-      WHERE id = 'x';
-    """,
-    # v2 → v3（2026-10-26）：内置 Zerochan（文件名形如 `Vigna.full.3017022`、`Vigna.600.3004963`）
-    r"""
-    INSERT OR IGNORE INTO platform (id, name, post_url, user_url, url_regex, file_regex) VALUES
-      ('zerochan', 'Zerochan',
-       'https://www.zerochan.net/{post_id}',
-       NULL,
-       'zerochan\.net/(?P<post_id>\d+)',
-       '\.(?:full|\d{3,4})\.(?P<post_id>\d{5,9})$');
-    """,
-    # v3 → v4（2026-10-26）：区分内置/自定义平台；同一作品同一页不允许重复登记。
-    r"""
-    ALTER TABLE platform ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0;
-    UPDATE platform SET builtin = 1 WHERE id IN ('pixiv', 'x', 'zerochan');
-    CREATE INDEX IF NOT EXISTS idx_image_work_page ON image(work_id, page);
-    """,
-]
-
-SCHEMA_VERSION = 1 + len(MIGRATIONS)
+APPLICATION_ID = 0x41475259  # AGRY；与旧格式的 application_id=0 区分
+BASE_VERSION = 5  # 旧程序最多支持 4，不能把新库误认为旧 v1
+MIGRATIONS: list[str] = []  # 第 i 条升级 BASE_VERSION+i → BASE_VERSION+i+1
+SCHEMA_VERSION = BASE_VERSION + len(MIGRATIONS)
+_REQUIRED = {
+    "image": {"id", "state", "artist_id", "added_at"},
+    "image_file": {
+        "id",
+        "image_id",
+        "rel_path",
+        "sha256",
+        "is_display",
+        "orig_name",
+        "width",
+        "height",
+        "missing",
+        "added_at",
+    },
+    "platform": {"id", "name", "post_url", "user_url", "url_regex", "builtin", "file_regex"},
+    "artist": {"id", "name", "note"},
+    "account": {"id", "artist_id", "platform", "uid", "handle"},
+    "tag": {"id", "ns", "name"},
+    "image_tag": {"image_id", "tag_id"},
+    "post": {"id", "platform", "post_id", "posted_at"},
+    "image_source": {"id", "image_id", "post_id", "page", "status", "confirmed_at"},
+    "source_evidence": {
+        "id",
+        "image_id",
+        "file_id",
+        "source_id",
+        "platform",
+        "post_id",
+        "page",
+        "input_kind",
+        "input_text",
+        "rule_key",
+        "confidence",
+        "evidence_key",
+        "added_at",
+    },
+    "import_record": {"id", "batch_id", "file_id", "orig_name", "added_at"},
+    "op_log": {"id", "batch_id", "kind", "payload", "at"},
+}
 
 
 class NotALibraryError(FileNotFoundError):
     pass
 
 
-def connect(root: Path) -> sqlite3.Connection:
-    """底层连接。业务代码请用 open_library()。"""
-    conn = sqlite3.connect(root / DB_NAME)
+class LibraryFormatError(RuntimeError):
+    pass
+
+
+def connect(root: Path, *, readonly: bool = False) -> sqlite3.Connection:
+    """仅连接已有文件，绝不因路径拼错创建空库；请求使用已经启动校验的库。"""
+    path = (root / DB_NAME).resolve()
+    if not path.is_file():
+        raise NotALibraryError(f"不是图库（找不到 {DB_NAME}）：{root}")
+    conn = sqlite3.connect(path.as_uri() + ("?mode=ro" if readonly else "?mode=rw"), uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute(
-        "PRAGMA busy_timeout = 5000"
-    )  # 另一个进程（如以后的 server）在写时等待而不是立刻报错
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
-def open_library(root: Path) -> sqlite3.Connection:
-    """打开已有图库：检查存在 → 连接 → 迁移 → 同步内置平台。"""
-    if not (root / DB_NAME).is_file():
-        raise NotALibraryError(f"不是图库（找不到 {DB_NAME}）：{root}")
+def _validate(conn: sqlite3.Connection) -> int:
+    app_id = conn.execute("PRAGMA application_id").fetchone()[0]
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if app_id == 0 and 1 <= version <= 4:
+        raise LibraryFormatError("不支持旧开发库；请在新目录建库并重新导入，原库未修改")
+    if app_id != APPLICATION_ID or version < BASE_VERSION:
+        raise LibraryFormatError("无法识别的图库格式，不会清空或重建数据库")
+    if version > SCHEMA_VERSION:
+        raise LibraryFormatError(
+            f"数据库版本 {version} 比程序支持的 {SCHEMA_VERSION} 新，请先升级程序"
+        )
+    for table, required in _REQUIRED.items():
+        columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not required <= columns:
+            raise LibraryFormatError(f"图库结构不完整（{table}），不会自动重建")
+    return version
+
+
+def open_library(root: Path, *, readonly: bool = False) -> sqlite3.Connection:
+    """先只读识别再写入；预演使用 readonly，不迁移或同步平台。"""
+    probe = connect(root, readonly=True)
+    try:
+        version = _validate(probe)
+        if readonly:
+            if version != SCHEMA_VERSION:
+                raise LibraryFormatError("图库需要升级，请先正常打开后再预演")
+            return probe
+    except BaseException:
+        probe.close()
+        raise
+    probe.close()
     conn = connect(root)
     try:
         migrate(conn)
@@ -77,39 +114,45 @@ def open_library(root: Path) -> sqlite3.Connection:
 
 
 def init_library(root: Path) -> Path:
-    """在 root 下新建图库；已存在则报错，不覆盖。"""
+    """只在空目录创建，已有文件／库／符号链接不覆盖。"""
+    if root.is_symlink() or (root.exists() and (not root.is_dir() or any(root.iterdir()))):
+        raise FileExistsError(f"目录非空，请选择新的空目录：{root}")
     root.mkdir(parents=True, exist_ok=True)
-    db_path = root / DB_NAME
-    if db_path.exists():
-        raise FileExistsError(f"图库已存在：{db_path}")
-    for sub in ("images/_inbox", ".cache/thumbs"):
-        (root / sub).mkdir(parents=True, exist_ok=True)
-
-    schema = resources.files(__package__).joinpath("schema.sql").read_text("utf-8")
-    conn = connect(root)
+    path = root / DB_NAME
+    with path.open("xb"):
+        pass
+    conn = None
     try:
-        with conn:
-            conn.executescript(schema)
-            conn.execute("PRAGMA user_version = 1")
+        conn = connect(root)
+        schema = resources.files(__package__).joinpath("schema.sql").read_text("utf-8")
+        conn.executescript(
+            f"BEGIN;\n{schema}\nPRAGMA application_id={APPLICATION_ID};\n"
+            f"PRAGMA user_version={BASE_VERSION};\nCOMMIT;"
+        )
         migrate(conn)
         sync_builtin_platforms(conn)
+        for sub in ("images/_inbox", "images/archived", ".cache/thumbs"):
+            (root / sub).mkdir(parents=True, exist_ok=True)
+    except BaseException:
+        if conn is not None:
+            conn.close()
+            conn = None
+        path.unlink(missing_ok=True)  # 只清理本次独占创建的数据库，不触碰既有文件
+        raise
     finally:
-        conn.close()
-    return db_path
+        if conn is not None:
+            conn.close()
+    return path
 
 
 def migrate(conn: sqlite3.Connection) -> int:
-    """把数据库升级到最新版本，返回升级后的版本号。
-
-    每条迁移和版本号更新在同一个事务里：中途失败会整体回滚，不会出现"改了一半"的库。
-    （sqlite3 的 executescript 会先 COMMIT，所以这里手动 BEGIN/COMMIT，不依赖 with conn。）
-    """
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version > SCHEMA_VERSION:
-        raise RuntimeError(f"数据库版本 {version} 比程序支持的 {SCHEMA_VERSION} 新，请先升级程序")
-    for i in range(version - 1, len(MIGRATIONS)):
+    """新格式后续升级；每一条及其版本号是同一事务，不存在旧库升级桥。"""
+    version = _validate(conn)
+    for i in range(version - BASE_VERSION, len(MIGRATIONS)):
         try:
-            conn.executescript(f"BEGIN;\n{MIGRATIONS[i]}\nPRAGMA user_version = {i + 2};\nCOMMIT;")
+            conn.executescript(
+                f"BEGIN;\n{MIGRATIONS[i]}\nPRAGMA user_version={BASE_VERSION + i + 1};\nCOMMIT;"
+            )
         except BaseException:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
@@ -118,7 +161,7 @@ def migrate(conn: sqlite3.Connection) -> int:
 
 
 def sync_builtin_platforms(conn: sqlite3.Connection) -> None:
-    """把代码里的内置平台定义写进 platform 表（新增或覆盖），自定义平台不动。"""
+    """同步内置定义，自定义资料不动；只在格式识别成功后调用。"""
     from artist_gallery.core.platforms import BUILTIN_PLATFORMS
 
     with conn:
@@ -128,9 +171,9 @@ def sync_builtin_platforms(conn: sqlite3.Connection) -> None:
                 INSERT INTO platform (id, name, post_url, user_url, url_regex, file_regex, builtin)
                 VALUES (?, ?, ?, ?, ?, NULL, 1)
                 ON CONFLICT(id) DO UPDATE SET
-                  name = excluded.name, post_url = excluded.post_url,
-                  user_url = excluded.user_url, url_regex = excluded.url_regex,
-                  file_regex = NULL, builtin = 1
+                  name=excluded.name, post_url=excluded.post_url,
+                  user_url=excluded.user_url, url_regex=excluded.url_regex,
+                  file_regex=NULL, builtin=1
                 """,
                 (p.id, p.name, p.post_url, p.user_url, p.url_regex),
             )

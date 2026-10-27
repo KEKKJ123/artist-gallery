@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import sqlite3
@@ -26,7 +27,7 @@ _A = re.ASCII
 
 
 class Confidence(StrEnum):
-    HIGH = "high"  # 自动归档
+    HIGH = "high"  # 高置信建议，仍须人工核查
     MEDIUM = "medium"  # 进收件箱，附带来源建议，等用户确认
     NONE = "none"  # 进收件箱
 
@@ -37,6 +38,7 @@ class Recognition:
     platform: str | None = None
     post_id: str | None = None
     page: int | None = None
+    rule_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -101,8 +103,15 @@ def load_rules(conn: sqlite3.Connection) -> RuleSet:
 
 def _from_match(rule: Rule, m: re.Match[str], confidence: Confidence) -> Recognition:
     groups = m.groupdict()
-    page = int(groups["page"]) + rule.page_offset if groups.get("page") else 0
-    return Recognition(confidence, rule.platform, groups["post_id"], max(page, 0))
+    page = int(groups["page"]) + rule.page_offset if groups.get("page") else None
+    if page is not None and page < 0:
+        page = None
+    definition = (
+        f"v2:{rule.platform}:{rule.pattern.pattern}:{rule.pattern.flags}:"
+        f"{rule.page_offset}:{rule.guarded}"
+    )
+    key = hashlib.sha256(definition.encode()).hexdigest()
+    return Recognition(confidence, rule.platform, groups["post_id"], page, key)
 
 
 def _plausible(rule: Rule, post_id: str) -> bool:
@@ -113,7 +122,7 @@ def recognize(stem: str, rules: RuleSet) -> Recognition:
     """识别文件名（不含扩展名）对应的来源。"""
     m = OWN_FORMAT.match(stem)
     if m and m["platform"] in rules.platforms:
-        return Recognition(Confidence.HIGH, m["platform"], m["post_id"], int(m["page"]))
+        return Recognition(Confidence.HIGH, m["platform"], m["post_id"], int(m["page"]), "own-v2")
 
     for rule in rules.high:
         m = rule.pattern.search(stem)
@@ -129,6 +138,6 @@ def recognize(stem: str, rules: RuleSet) -> Recognition:
                 return _from_match(rule, m, Confidence.MEDIUM)
 
     if "x" in rules.platforms and X_MEDIA_KEY.match(stem):
-        return Recognition(Confidence.MEDIUM, "x", None, None)
+        return Recognition(Confidence.MEDIUM, "x", None, None, "x-media-key-v2")
 
     return NO_MATCH

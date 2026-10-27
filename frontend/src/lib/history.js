@@ -27,7 +27,7 @@ export function syncHistory(getView, onNavigate, win = window) {
       if (sameView(parseView(win.location.search), view)) return
       win.history.pushState(null, '', viewToUrl(view))
     },
-    /** 用 replaceState 对齐地址栏（启动时把 `/?folder=a//b/` 规整成干净的写法，不产生新历史）。 */
+    /** 启动时规整地址栏，不产生新历史；旧目录链接的失效提示由上层保留。 */
     align() {
       const want = viewToUrl(getView())
       const have = win.location.pathname + win.location.search

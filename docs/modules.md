@@ -1,8 +1,6 @@
 # 模块边界与依赖方向
 
-本文是 main 已合入的**当前旧模型代码地图**，不把目标模块写成已实现功能。需求以 [design.md](design.md) v0.9.1、交互以 [frontend-style.md](frontend-style.md) 为准；新旧模块去留与替代入口见 [transition.md](transition.md)。暂停 PR 中的文件大小／标题功能不属于这张当前地图。
-
-收件箱仍由旧 `work_id` 判断、文件夹仍按路径查询，是待替换实现，不是新业务约定；后续以明确整理状态与图片关系为准。
+本文对应 T1 新格式模型；需求见 [design.md](design.md) v0.10、交互见 [frontend-style.md](frontend-style.md)，剩余阶段见 [transition.md](transition.md)。核查／归档／属性编辑尚未实现，不把结构预留当作功能入口。
 
 ## 后端
 
@@ -15,9 +13,10 @@ server/app.py       组装路由、中间件、应用配置；不放处理器或
 
 core/browse.py ─┬─ images.py    共用图片投影、分页边界、按哈希查询
 core/inbox.py  ─┘      └─ media.py     媒体格式能力表，无 Pillow 依赖
-core/browse.py ─── layout.py    图库相对目录约定，无导入逻辑
+core/layout.py                两区相对目录约定，无文件操作
 core/platforms.py              内置平台定义及平台列表查询
-core/importer.py               导入与确认后的源文件删除（写操作）
+core/importer.py               原名安全导入、增量副本校验、确认后删源
+  └─ sources.py               记录去重的来源证据与待核查关联，不覆盖人工结果
 core/thumbnail.py              缩略图生成（Pillow），共用 media.py 的格式表
 ```
 
@@ -25,7 +24,7 @@ core/thumbnail.py              缩略图生成（Pillow），共用 media.py 的
 - 只读查询不依赖 `importer`、`thumbnail` 或 Pillow；新增共用能力放在真正所属模块，不能随手挂到收件箱上。
 - `core` 不依赖 `server` / Web 框架。处理器保持普通 `def`，每次请求在 `context.connection` 内开关连接。
 - `db.open_library` 负责启动时的校验、迁移和平台同步；请求里的 `db.connect` 只连接已经校验过的图库。
-- HTTP 路径、JSON 结构、分页规则不因模块移动而改变；数据库结构、迁移与文件操作语义也不变。
+- T1 删除 `/api/folder(s)`，新增 `/api/navigation`、`/api/archived`；列表用 `source_hints` 数组，不保留旧单建议字段。`image_tag` 直连图片，文件投影来自唯一展示版本，不依赖 work／组。
 
 ## 前端
 
@@ -45,7 +44,7 @@ App / components
 `use…` 函数放在 `frontend/src/composables/`。它们是可单独使用的 Vue 状态模块：
 
 - 不 import Pinia、store、组件或 API；输入通过 ref / getter / 回调传入。
-- 分页模块只调用传入的 `fetchPage(offset)`，不知道取的是收件箱还是文件夹。
+- 分页模块只调用传入的 `fetchPage(offset)`，不知道取的是收件箱还是已归档。
 - 选择模块不知道网络与分页；协调器在接纳新列表后调用 `prune`，换视图时调用 `reset`。
 - 预览舞台不知道图片来源、帮助弹层和图库；组件只负责显示信息、切图及键盘优先级。
 - 需要监听浏览器事件的模块自行在卸载时清理，不留全局监听器。

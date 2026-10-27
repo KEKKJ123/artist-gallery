@@ -32,7 +32,6 @@ export function useGalleryNavigation({ getView, setView, navOpen, closeNav }) {
 
   return {
     narrow, drawerOpen, go,
-    goFolder: (path) => go({ kind: 'folder', path }),
     setFilter: (filter) => go({ kind: 'inbox', filter }),
   }
 }

@@ -10,7 +10,13 @@ from pathlib import Path
 from artist_gallery import __version__
 from artist_gallery.core import db
 from artist_gallery.core.browse import navigation
-from artist_gallery.core.importer import Action, ImportItem, delete_sources, import_files
+from artist_gallery.core.importer import (
+    Action,
+    ImportItem,
+    count_pending_deletions,
+    delete_sources,
+    import_files,
+)
 from artist_gallery.netinfo import LanAddress, lan_addresses
 
 _ACTION_LABEL = {
@@ -90,6 +96,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print(f"新增来源线索 {added} 条（不代表已核查）")
 
     deletable = report.deletable()
+    delete_problem = False
     if deletable:
         if args.delete_source == "yes":
             confirm = True
@@ -98,14 +105,22 @@ def _cmd_import(args: argparse.Namespace) -> int:
         else:
             confirm = _ask_delete(len(deletable))
         if confirm:
-            results = delete_sources(report)
+            try:
+                results = delete_sources(report)
+            except (OSError, RuntimeError, sqlite3.DatabaseError) as e:
+                print(f"错误：无法开始删除源文件：{e}", file=sys.stderr)
+                return 1
+            delete_problem = any(r.message for r in results)
             kept = [r for r in results if not r.deleted]
             print(f"已删除源文件 {len(results) - len(kept)} 个。")
-            for r in kept:
-                print(f"  [保留] {r.item.src.name}  ({r.message})")
+            for r in results:
+                if not r.deleted:
+                    print(f"  [保留] {r.item.src.name}  ({r.message})")
+                elif r.message:
+                    print(f"  [待核对] {r.item.src.name}  ({r.message})")
         else:
             print("源文件保留未动。")
-    return 1 if c[Action.ERROR] else 0
+    return 1 if c[Action.ERROR] or delete_problem else 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -128,6 +143,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"  已归档    {nav['archived']}")
         print(f"  画师      {count('artist')}")
         print(f"  tag       {count('tag')}")
+        pending = count_pending_deletions(conn)
+        if pending:
+            print(f"  待核对的源文件删除记录 {pending} 条（不会自动重试删除）")
         for row in conn.execute(
             "SELECT p.platform,COUNT(*) FROM image_source s JOIN post p ON p.id=s.post_id "
             "GROUP BY p.platform ORDER BY 2 DESC"

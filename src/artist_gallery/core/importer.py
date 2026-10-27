@@ -26,7 +26,13 @@ from artist_gallery.core import db
 from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.layout import INBOX
 from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
-from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
+from artist_gallery.core.recognize import (
+    Confidence,
+    Recognition,
+    RuleSet,
+    load_rules,
+    recognize,
+)
 from artist_gallery.core.sources import record_filename
 
 
@@ -185,7 +191,10 @@ class _Importer:
         except OSError as e:
             return ImportItem(src, Action.ERROR, message=f"读取失败：{e}")
 
-        rec = recognize(src.stem, self.rules)
+        try:
+            rec = recognize(src.stem, self.rules)
+        except (ValueError, OverflowError) as e:
+            return ImportItem(src, Action.ERROR, message=f"文件名识别失败：{e}")
         dup = self.conn.execute(
             "SELECT id, image_id, rel_path FROM image_file WHERE sha256=?", (sha,)
         ).fetchone()
@@ -312,51 +321,104 @@ def import_files(
     return report
 
 
-def delete_sources(report: ImportReport) -> list[DeleteResult]:
-    """删除本次已导入文件的源文件。只应在用户明确确认后调用。
+def _finish_delete(conn: sqlite3.Connection, log_id: int, payload: dict, status: str) -> None:
+    """只更新本次意图，失败时原 pending 记录仍持久化；不再次删除文件。"""
+    with conn:
+        conn.execute(
+            "UPDATE op_log SET payload=? WHERE id=? AND kind='delete_source'",
+            (json.dumps({**payload, "status": status}, ensure_ascii=False), log_id),
+        )
 
-    每个文件删除前再查一遍，任何一项不满足就跳过、保留源文件：
-    - 图库里的副本还在，且内容和导入时一致；
-    - 源文件还在，且内容和导入时一致（导入后被编辑过的不删）。
+
+def _source_delete_problem(root: Path, it: ImportItem, copy: Path) -> str | None:
+    """日志提交前后都复核副本和源文件，任何不一致均不删。"""
+    if not copy.is_relative_to(root.resolve() / "images"):
+        return "图库路径异常，保留源文件"
+    if _within(it.src.resolve(), root.resolve()):
+        return "源路径指向图库内部，保留文件"
+    if not copy.is_file() or sha256_file(copy) != it.sha256:
+        return "图库副本缺失或已变化，保留源文件"
+    if not it.src.is_file():
+        return "源文件已不在"
+    if sha256_file(it.src) != it.sha256:
+        return "源文件在导入后被修改过，保留"
+    return None
+
+
+def delete_sources(report: ImportReport) -> list[DeleteResult]:
+    """显式确认后：复核→提交 pending 意图→再次复核→删除→登记结果。
+
+    意图不能提交则绝不删除。删后登记失败保留 pending、返回明确警告；不自动重试删除。
+    文件系统不能用 SQLite 回滚，pending 只能由人工核对，不能推断为“未删除”。
     """
     results: list[DeleteResult] = []
     conn = db.open_library(report.root)
     try:
         for it in report.deletable():
             assert it.sha256 and it.rel_path
-            row = conn.execute(
-                "SELECT rel_path, sha256 FROM image_file WHERE id=?", (it.file_id,)
-            ).fetchone()
-            if row is None or row["sha256"] != it.sha256:
-                results.append(DeleteResult(it, False, "图库记录已变化，保留源文件"))
-                continue
-            copy = (report.root / row["rel_path"]).resolve()
-            if not copy.is_relative_to(report.root.resolve() / "images"):
-                results.append(DeleteResult(it, False, "图库路径异常，保留源文件"))
-                continue
             try:
-                if not copy.is_file() or sha256_file(copy) != it.sha256:
-                    results.append(DeleteResult(it, False, "图库副本缺失或已变化，保留源文件"))
+                row = conn.execute(
+                    "SELECT rel_path, sha256 FROM image_file WHERE id=?", (it.file_id,)
+                ).fetchone()
+                if row is None or row["sha256"] != it.sha256:
+                    results.append(DeleteResult(it, False, "图库记录已变化，保留源文件"))
                     continue
-                if not it.src.is_file():
-                    results.append(DeleteResult(it, False, "源文件已不在"))
+                copy = (report.root / row["rel_path"]).resolve()
+                problem = _source_delete_problem(report.root, it, copy)
+                if problem:
+                    results.append(DeleteResult(it, False, problem))
                     continue
-                if sha256_file(it.src) != it.sha256:
-                    results.append(DeleteResult(it, False, "源文件在导入后被修改过，保留"))
-                    continue
+                payload = {
+                    "from": str(it.src),
+                    "kept": row["rel_path"],
+                    "file_id": it.file_id,
+                    "sha256": it.sha256,
+                    "status": "pending",
+                }
+                with conn:
+                    log_id = conn.execute(
+                        "INSERT INTO op_log (batch_id, kind, payload) "
+                        "VALUES (?, 'delete_source', ?)",
+                        (report.batch_id, json.dumps(payload, ensure_ascii=False)),
+                    ).lastrowid
+            except (OSError, sqlite3.Error) as e:
+                results.append(DeleteResult(it, False, f"删除前校验或日志失败，保留源文件：{e}"))
+                continue
+
+            try:
+                problem = _source_delete_problem(report.root, it, copy)
+                if problem:
+                    raise OSError(problem)
                 it.src.unlink()
             except OSError as e:
-                results.append(DeleteResult(it, False, f"删除失败：{e}"))
+                message = f"未完成删除：{e}"
+                try:
+                    _finish_delete(conn, log_id, payload, "failed")
+                except sqlite3.Error:
+                    message += "；结果登记失败，日志保留待核对状态"
+                results.append(DeleteResult(it, False, message))
                 continue
-            with conn:
-                conn.execute(
-                    "INSERT INTO op_log (batch_id, kind, payload) VALUES (?, 'delete_source', ?)",
-                    (
-                        report.batch_id,
-                        json.dumps({"from": str(it.src), "kept": it.rel_path}, ensure_ascii=False),
-                    ),
+            try:
+                _finish_delete(conn, log_id, payload, "deleted")
+            except sqlite3.Error as e:
+                results.append(
+                    DeleteResult(
+                        it, True, f"源文件已删除，但结果登记失败；日志 #{log_id} 待核对：{e}"
+                    )
                 )
+                continue
             results.append(DeleteResult(it, True))
     finally:
         conn.close()
     return results
+
+
+def count_pending_deletions(conn: sqlite3.Connection) -> int:
+    """只读统计中断／结果写入失败的意图，旧审计记录无 status 不作待核对。"""
+    count = 0
+    for row in conn.execute("SELECT payload FROM op_log WHERE kind='delete_source'"):
+        try:
+            count += json.loads(row[0]).get("status") == "pending"
+        except (ValueError, AttributeError):
+            continue
+    return count

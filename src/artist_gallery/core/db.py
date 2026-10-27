@@ -1,4 +1,4 @@
-"""新格式初始化、只读预检与版本升级。旧开发库在写入前拒绝。"""
+"""当前格式初始化、按版本校验与事务升级；不保留改路线前旧库识别逻辑。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from importlib import resources
 from pathlib import Path
 
 DB_NAME = "library.db"
-APPLICATION_ID = 0x41475259  # AGRY；与旧格式的 application_id=0 区分
-BASE_VERSION = 5  # 旧程序最多支持 4，不能把新库误认为旧 v1
+APPLICATION_ID = 0x41475259  # AGRY
+BASE_VERSION = 5  # 当前格式的起始版本
 MIGRATIONS: list[str] = []  # 第 i 条升级 BASE_VERSION+i → BASE_VERSION+i+1
 SCHEMA_VERSION = BASE_VERSION + len(MIGRATIONS)
-_REQUIRED = {
+_BASE_REQUIRED = {
     "image": {"id", "state", "artist_id", "added_at"},
     "image_file": {
         "id",
@@ -50,6 +50,8 @@ _REQUIRED = {
     "import_record": {"id", "batch_id", "file_id", "orig_name", "added_at"},
     "op_log": {"id", "batch_id", "kind", "payload", "at"},
 }
+# 每个版本记录其自身的必需结构；追加迁移时同时追加目标版本校验，不能改写基线。
+REQUIRED_SCHEMAS: dict[int, dict[str, set[str]]] = {BASE_VERSION: _BASE_REQUIRED}
 
 
 class NotALibraryError(FileNotFoundError):
@@ -72,29 +74,35 @@ def connect(root: Path, *, readonly: bool = False) -> sqlite3.Connection:
     return conn
 
 
-def _validate(conn: sqlite3.Connection) -> int:
+def _validate_format(conn: sqlite3.Connection) -> int:
+    """仅识别本项目格式和支持版本，不用最新字段误拦升级入口。"""
     app_id = conn.execute("PRAGMA application_id").fetchone()[0]
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if app_id == 0 and 1 <= version <= 4:
-        raise LibraryFormatError("不支持旧开发库；请在新目录建库并重新导入，原库未修改")
     if app_id != APPLICATION_ID or version < BASE_VERSION:
         raise LibraryFormatError("无法识别的图库格式，不会清空或重建数据库")
     if version > SCHEMA_VERSION:
         raise LibraryFormatError(
             f"数据库版本 {version} 比程序支持的 {SCHEMA_VERSION} 新，请先升级程序"
         )
-    for table, required in _REQUIRED.items():
+    return version
+
+
+def _validate_schema(conn: sqlite3.Connection, version: int) -> None:
+    required_schema = REQUIRED_SCHEMAS.get(version)
+    if required_schema is None:
+        raise LibraryFormatError(f"程序缺少图库版本 {version} 的结构校验，未执行升级")
+    for table, required in required_schema.items():
         columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if not required <= columns:
-            raise LibraryFormatError(f"图库结构不完整（{table}），不会自动重建")
-    return version
+            raise LibraryFormatError(f"图库结构不完整（v{version} {table}），不会自动重建")
 
 
 def open_library(root: Path, *, readonly: bool = False) -> sqlite3.Connection:
     """先只读识别再写入；预演使用 readonly，不迁移或同步平台。"""
     probe = connect(root, readonly=True)
     try:
-        version = _validate(probe)
+        version = _validate_format(probe)
+        _validate_schema(probe, version)
         if readonly:
             if version != SCHEMA_VERSION:
                 raise LibraryFormatError("图库需要升级，请先正常打开后再预演")
@@ -146,16 +154,22 @@ def init_library(root: Path) -> Path:
 
 
 def migrate(conn: sqlite3.Connection) -> int:
-    """新格式后续升级；每一条及其版本号是同一事务，不存在旧库升级桥。"""
-    version = _validate(conn)
+    """按输入版本检查，再逐条升级；目标结构检查和版本号也在同一事务中。"""
+    version = _validate_format(conn)
+    _validate_schema(conn, version)
+    # 缺少任何中间校验时在第一笔写入前失败，避免升级到一半才发现程序配置遗漏。
+    for target in range(version + 1, SCHEMA_VERSION + 1):
+        if target not in REQUIRED_SCHEMAS:
+            raise LibraryFormatError(f"程序缺少图库版本 {target} 的结构校验，未执行升级")
     for i in range(version - BASE_VERSION, len(MIGRATIONS)):
+        target = BASE_VERSION + i + 1
         try:
-            conn.executescript(
-                f"BEGIN;\n{MIGRATIONS[i]}\nPRAGMA user_version={BASE_VERSION + i + 1};\nCOMMIT;"
-            )
+            conn.executescript(f"BEGIN;\n{MIGRATIONS[i]}\nPRAGMA user_version={target};")
+            _validate_schema(conn, target)
+            conn.commit()
         except BaseException:
             if conn.in_transaction:
-                conn.execute("ROLLBACK")
+                conn.rollback()
             raise
     return conn.execute("PRAGMA user_version").fetchone()[0]
 

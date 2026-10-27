@@ -16,7 +16,7 @@ import {
 } from '../lib/zoom.js'
 
 /** 预览舞台：只管理尺寸、缩放和指针，不知道 store、帮助弹层或来源资料。 */
-export function usePreviewViewport({ mediaId, video, onClose }) {
+export function usePreviewViewport({ mediaId, video, onClose, zoomDisabled = () => false }) {
   // ---- 缩放状态 ----
   const stage = ref(null)
   const view = reactive({ ...FIT })
@@ -24,7 +24,7 @@ export function usePreviewViewport({ mediaId, video, onClose }) {
   const img = reactive({ w: 0, h: 0 }) // 当前图原始像素
   const dragging = ref(false)
   const zoomed = computed(() => view.scale > 1.001)
-  const canZoom = computed(() => !video.value && img.w > 0)
+  const canZoom = computed(() => !video.value && !zoomDisabled() && img.w > 0)
   const pct = computed(() => percent(view, img, box))
 
   function setView(v) {

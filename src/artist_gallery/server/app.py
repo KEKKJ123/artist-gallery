@@ -24,7 +24,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from artist_gallery.core import db, inbox
+from artist_gallery.core import browse, db, inbox
 from artist_gallery.core.thumbnail import get_or_create
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -50,6 +50,31 @@ def api_inbox(request: Request) -> Response:
         return JSONResponse({"error": "offset 和 limit 必须是整数"}, status_code=400)
     with _conn(request) as conn:
         return JSONResponse(inbox.list_inbox(conn, offset=offset, limit=limit))
+
+
+def api_folders(request: Request) -> Response:
+    """GET /api/folders — 左侧导航：收件箱张数、已归档总数、文件夹树。"""
+    with _conn(request) as conn:
+        return JSONResponse(browse.list_folders(conn))
+
+
+def api_folder_images(request: Request) -> Response:
+    """GET /api/folder?path=pixiv&offset=0&limit=100 — 某文件夹（含子文件夹）里的图。
+
+    path 为空表示"全部已归档"。用查询参数而不是路径参数：文件夹名可以含中文、空格、`%`，
+    放进 URL 路径里要处理多层转义，放进查询参数由浏览器和 Starlette 统一编解码。
+    """
+    try:
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 100))
+    except ValueError:
+        return JSONResponse({"error": "offset 和 limit 必须是整数"}, status_code=400)
+    try:
+        folder = browse.normalize_folder(request.query_params.get("path", ""))
+    except browse.BadFolderPath as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    with _conn(request) as conn:
+        return JSONResponse(browse.list_folder_images(conn, folder, offset=offset, limit=limit))
 
 
 def api_platforms(request: Request) -> Response:
@@ -113,6 +138,8 @@ def create_app(library_root: Path, *, allow_any_host: bool = False) -> Starlette
 
     routes = [
         Route("/api/inbox", api_inbox),
+        Route("/api/folders", api_folders),
+        Route("/api/folder", api_folder_images),
         Route("/api/platforms", api_platforms),
         Route("/api/{rest:path}", api_not_found),
         Route("/thumbs/{sha256}", serve_thumb),

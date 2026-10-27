@@ -1,10 +1,23 @@
 <script setup>
-import { CircleHelp, Inbox, Monitor, Moon, PanelRight, RefreshCw, Square, Sun, LayoutGrid } from '@lucide/vue'
+import {
+  CircleHelp,
+  Folder,
+  Inbox,
+  LayoutGrid,
+  Monitor,
+  Moon,
+  PanelLeft,
+  PanelRight,
+  RefreshCw,
+  Square,
+  Sun,
+} from '@lucide/vue'
 import { computed } from 'vue'
-import { SIZE_MAX, SIZE_MIN, usePrefsStore } from '../stores/prefs.js'
 import { useInboxStore } from '../stores/inbox.js'
+import { SIZE_MAX, SIZE_MIN, usePrefsStore } from '../stores/prefs.js'
+import Breadcrumb from './Breadcrumb.vue'
 
-defineEmits(['help'])
+defineEmits(['help', 'navigate-folder'])
 const prefs = usePrefsStore()
 const inbox = useInboxStore()
 
@@ -12,11 +25,26 @@ const themeIcon = computed(() => ({ system: Monitor, light: Sun, dark: Moon })[p
 const themeLabel = computed(
   () => ({ system: '主题：跟随系统', light: '主题：浅色', dark: '主题：深色' })[prefs.theme],
 )
+const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.path : ''))
 </script>
 
 <template>
   <header class="top">
-    <div class="brand"><Inbox :size="18" /> 收件箱</div>
+    <button
+      class="icon"
+      :aria-pressed="prefs.navOpen"
+      title="显示/隐藏文件夹列表"
+      aria-label="显示或隐藏文件夹列表"
+      @click="prefs.navOpen = !prefs.navOpen"
+    >
+      <PanelLeft :size="16" />
+    </button>
+
+    <div v-if="inbox.isInbox" class="brand"><Inbox :size="18" /> 收件箱</div>
+    <div v-else class="brand folder">
+      <Folder :size="18" class="ico" />
+      <Breadcrumb :path="folderPath" @navigate="(p) => $emit('navigate-folder', p)" />
+    </div>
     <span class="count">
       <template v-if="inbox.loading && !inbox.items.length">加载中…</template>
       <template v-else>共 {{ inbox.total }} 张</template>
@@ -81,25 +109,19 @@ const themeLabel = computed(
   font-weight: 600;
   white-space: nowrap;
 }
+.brand.folder {
+  min-width: 0;
+  flex: 0 1 auto;
+  font-weight: 400;
+}
+.brand .ico {
+  flex: none;
+  color: var(--fg-dim);
+}
 .count {
   color: var(--fg-dim);
   font-size: 13px;
   white-space: nowrap;
-}
-.top button {
-  flex: none;
-}
-
-/* 手机宽度：顶栏放不下所有东西。缩略图大小在手机上由屏幕宽度决定（见 ThumbGrid），
-   滑块没有用处，藏起来；间距收紧，保证右侧按钮不被裁掉。 */
-@media (max-width: 520px) {
-  .top {
-    gap: 4px;
-    padding-inline: 8px;
-  }
-  .size {
-    display: none;
-  }
 }
 .spacer {
   flex: 1;
@@ -122,5 +144,24 @@ button[aria-pressed='true'] {
 button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.top button {
+  flex: none;
+}
+
+/* 手机宽度：顶栏放不下所有东西。缩略图大小在手机上由屏幕宽度决定（见 ThumbGrid），
+   滑块没有用处，藏起来；间距收紧，保证右侧按钮不被裁掉。 */
+@media (max-width: 520px) {
+  .top {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+  .size {
+    display: none;
+  }
+  /* 面包屑可能很长：手机上只显示最后一级，其余可以点导航栏里的文件夹到达 */
+  .brand.folder :deep(li:not(:last-child)) {
+    display: none;
+  }
 }
 </style>

@@ -59,7 +59,8 @@ npm run build          # 构建，产物直接写进 ../src/artist_gallery/serve
 npm run dev            # 开发服务器 http://localhost:5173，接口代理到本机已启动的 artist-gallery serve（8765）
 ```
 - **改了 `frontend/` 就要重新 `npm run build`，并提交 `static/` 的变化。** 忘了的话 CI 的 `frontend` 任务会报错。
-- 前端运行时依赖要尽量少（现在只有 vue、pinia、@lucide/vue）；加新依赖前先想"手写能不能解决"（见 `docs/frontend-style.md` 第 8 节）。
+- 前端运行时依赖要尽量少（现在只有 vue、pinia、@lucide/vue）；加新依赖前先想"手写能不能解决"（见 `docs/frontend-style.md` 第 8 节）。**没有用 vue-router**：只有"收件箱 / 文件夹"两种视图，用 `lib/location.js` + `lib/history.js`（几十行、有测试）把视图同步到地址栏就够了；到 M2 页面变多再重新评估。
+- 前端的"在途请求"要防竞态：用户快速切换视图时，先发出、后返回的旧请求不能覆盖新结果（见 `stores/inbox.js` 的 `epoch`）。新增会异步取数据的 store 时照此处理。
 - 组件文件名用大驼峰（`ThumbCell.vue`）。CI 跑在区分大小写的 Linux 上，`import` 路径的大小写必须和文件名逐字一致，否则 Windows 上正常、CI 里报错。
 - Termux 上安装：Pillow 用 `pkg install python-pillow`，venv 加 `--system-site-packages`；只装 `pip install -e . pytest`，**不要装 `.[dev]`**（ruff 是 Rust 写的，会在手机上现场编译）。
 

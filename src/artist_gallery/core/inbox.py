@@ -17,13 +17,17 @@ from artist_gallery.core.thumbnail import THUMB_EXTS
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_LIMIT = 500
 
+# 列表接口统一查这些列，配合 image_to_dict 使用（收件箱和文件夹视图共用）
+IMAGE_COLUMNS = "id, rel_path, sha256, orig_name, source_hint, width, height, added_at, missing"
+
 
 def _file_url(rel_path: str) -> str:
     """原图的 URL。rel_path 形如 images/pixiv/xxx.png，去掉 images/ 前缀并转义中文和空格。"""
     return "/images/" + quote(rel_path.removeprefix("images/"), safe="/")
 
 
-def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
+def image_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    """把按 IMAGE_COLUMNS 查出的一行转成给前端的字典。"""
     ext = PurePosixPath(row["rel_path"]).suffix.lower()
     hint = json.loads(row["source_hint"]) if row["source_hint"] else None
     return {
@@ -48,15 +52,15 @@ def list_inbox(conn: sqlite3.Connection, *, offset: int = 0, limit: int = 100) -
     limit = min(max(1, limit), MAX_LIMIT)
     total = conn.execute("SELECT COUNT(*) FROM image WHERE work_id IS NULL").fetchone()[0]
     rows = conn.execute(
-        "SELECT id, rel_path, sha256, orig_name, source_hint, width, height, added_at, missing"
-        " FROM image WHERE work_id IS NULL ORDER BY added_at, id LIMIT ? OFFSET ?",
+        f"SELECT {IMAGE_COLUMNS} FROM image WHERE work_id IS NULL"
+        " ORDER BY added_at, id LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     return {
         "total": total,
         "offset": offset,
         "limit": limit,
-        "items": [_row_to_item(r) for r in rows],
+        "items": [image_to_dict(r) for r in rows],
     }
 
 

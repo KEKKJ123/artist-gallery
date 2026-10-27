@@ -29,6 +29,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   const square = ref(Boolean(saved.square)) // 默认原比例
   // 右侧面板：第一次打开时，宽屏默认展开，手机（窄屏）默认收起，把地方让给图片
   const panelOpen = ref(saved.panelOpen ?? window.matchMedia('(min-width: 721px)').matches)
+  // 左侧文件夹列表：和右侧面板一样，宽屏默认展开，手机默认收起（手机上它以抽屉形式盖在图上）
+  const navOpen = ref(saved.navOpen ?? window.matchMedia('(min-width: 721px)').matches)
 
   function applyTheme() {
     const el = document.documentElement
@@ -45,6 +47,7 @@ export const usePrefsStore = defineStore('prefs', () => {
           thumbSize: thumbSize.value,
           square: square.value,
           panelOpen: panelOpen.value,
+          navOpen: navOpen.value,
         }),
       )
     } catch {
@@ -53,7 +56,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   watch(theme, applyTheme, { immediate: true })
-  watch([theme, thumbSize, square, panelOpen], persist)
+  watch([theme, thumbSize, square, panelOpen, navOpen], persist)
 
   function setThumbSize(n) {
     thumbSize.value = clampSize(n)
@@ -65,5 +68,5 @@ export const usePrefsStore = defineStore('prefs', () => {
     theme.value = THEMES[(THEMES.indexOf(theme.value) + 1) % THEMES.length]
   }
 
-  return { theme, thumbSize, square, panelOpen, setThumbSize, nudgeThumbSize, cycleTheme }
+  return { theme, thumbSize, square, panelOpen, navOpen, setThumbSize, nudgeThumbSize, cycleTheme }
 })

@@ -10,6 +10,7 @@ from pathlib import Path
 from artist_gallery import __version__
 from artist_gallery.core import db
 from artist_gallery.core.importer import Action, ImportItem, delete_sources, import_files
+from artist_gallery.netinfo import LanAddress, lan_addresses
 
 _ACTION_LABEL = {
     Action.AUTO: "自动归档",
@@ -134,6 +135,43 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 _LOCAL_BINDS = {"127.0.0.1", "localhost", "::1"}
+# 这些写法表示"监听所有网卡"，本身不是能在浏览器里打开的地址
+_ALL_INTERFACES = {"0.0.0.0", "::", ""}
+
+
+def serve_banner(host: str, port: int, addresses: list[LanAddress] | None = None) -> list[str]:
+    """启动时打印的访问说明。
+
+    addresses 只用于测试；默认从系统读取本机地址。
+    """
+    if host in _LOCAL_BINDS:
+        return [
+            f"打开浏览器访问：http://localhost:{port}   （Ctrl+C 停止）",
+            "只允许本机访问。要让手机访问，请加 --host 0.0.0.0 重新启动。",
+        ]
+
+    lines = [f"本机访问：  http://localhost:{port}   （Ctrl+C 停止）"]
+    if host in _ALL_INTERFACES:
+        found = lan_addresses() if addresses is None else addresses
+        if found:
+            lines.append("手机访问（连同一个 Wi-Fi）：")
+            for a in found:
+                tag = "" if a.likely else "   （不像家里 Wi-Fi 的地址，手机多半连不上）"
+                lines.append(f"  http://{a.ip}:{port}{tag}")
+            if not any(a.likely for a in found):
+                lines.append(
+                    "  没找到常见的家用局域网地址，请用 ipconfig 查看 Wi-Fi 的 IPv4 地址。"
+                )
+        else:
+            lines.append(
+                "没能自动取得本机局域网地址，请用 ipconfig（Windows）查看 Wi-Fi 的 IPv4 地址，"
+            )
+            lines.append(f"手机浏览器输入 http://<那个地址>:{port}")
+        lines.append("注意：不要在浏览器里输入 0.0.0.0，那不是一个可访问的地址。")
+    else:
+        lines.append(f"局域网访问：http://{host}:{port}")
+    lines.append("注意：局域网模式没有登录保护，同一网络里的人都能看到图库。用完请停止服务。")
+    return lines
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
@@ -150,11 +188,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print(f"错误：{e}", file=sys.stderr)
         return 1
 
-    shown = "localhost" if not lan else args.host
     print(f"图库：{root.resolve()}")
-    print(f"打开浏览器访问：http://{shown}:{args.port}   （Ctrl+C 停止）")
-    if lan:
-        print("注意：已允许局域网访问，目前没有登录保护，同一网络里的人都能看到图库。")
+    for line in serve_banner(args.host, args.port):
+        print(line)
     try:
         uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     except OSError as e:  # 端口被占用等
@@ -192,7 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sv = sub.add_parser("serve", help="启动本地网页界面")
     p_sv.add_argument("library", help="图库根目录")
-    p_sv.add_argument("--host", default="127.0.0.1", help="监听地址，默认只允许本机访问")
+    p_sv.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="监听地址。默认 127.0.0.1 只允许本机访问；0.0.0.0 允许同一局域网的手机访问",
+    )
     p_sv.add_argument("--port", type=int, default=8765, help="端口，默认 8765")
     p_sv.set_defaults(func=_cmd_serve)
 

@@ -3,6 +3,12 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
+### 修复：.gitignore 会误伤前端文件
+- 为防止用户图片进仓库而写的 `*.png`、`*.webp` 等规则，会同时吞掉前端构建产物里的图标（`server/static/`）和前端源码里的图片，提交后网页会缺图。现为 `server/static/`、`frontend/` 加了例外。
+- `images/`、`library/` 改为只匹配仓库根目录（`/images/`、`/library/`），不再误伤 `frontend/src/assets/images/`、`frontend/src/views/library/` 这类源码目录。
+- 补充忽略 `*.bmp` 和常见视频格式（`.mp4` `.webm` `.mov` `.mkv` `.avi` `.m4v`），与导入器支持的格式一致。
+- 验证方式：在临时仓库里放 11 个"应当能提交"和 21 个"必须被挡住"的路径，新规则 0 误伤、0 漏网；同一套检查对旧规则能报出 7 处误伤。
+
 ### 文档整理
 - 删除 `docs/前端风格建议.md`（原始建议文档，曾直接推入 main）：它主张"一律用撤销代替确认"，与 ADR 0005 / 0007 矛盾，且与 `docs/frontend-style.md` 内容重叠，留着会让人读到过时规则。
 - `docs/frontend-style.md` 第 5 节对齐 ADR 0007 的最新条款（撤销未交付不得免确认、连续撤销、撤销失败不强行还原、不可逆记录不进撤销栈），去掉对已删除文档的引用。

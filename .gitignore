@@ -3,15 +3,34 @@
 *.db-journal
 *.db-wal
 *.db-shm
-images/
-library/
+# 只匹配仓库根目录下的图库文件夹；frontend/ 等源码目录里的 images/、library/ 不受影响
+/images/
+/library/
 .cache/
 *.jpg
 *.jpeg
 *.png
 *.gif
 *.webp
+*.bmp
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+*.m4v
+
+# 例外：以上规则是为了防止用户图库/图片误入仓库，但下面这些是代码的一部分，必须能提交。
+# （ node_modules/ 仍然被下面的规则排除，不受这里影响 ）
 !docs/assets/**
+# 前端构建产物（M1b 起提交进仓库，手机 Termux 无需 Node 即可用）
+!src/artist_gallery/server/static/**
+# 前端源码里的图标、插图
+!frontend/**/*.png
+!frontend/**/*.webp
+!frontend/**/*.gif
+!frontend/**/*.jpg
+!frontend/**/*.jpeg
 
 # --- 凭据 ---
 cookies*.txt

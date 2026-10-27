@@ -33,6 +33,18 @@ export function fetchInbox(offset = 0, limit = 200) {
   return getJson(`/api/inbox?offset=${offset}&limit=${limit}`)
 }
 
+/** 某文件夹（含子文件夹）一页；path 为空 = 全部已归档。返回 { folder, total, offset, limit, items } */
+export function fetchFolder(path = '', offset = 0, limit = 200) {
+  // 文件夹名可能含中文、空格、% 等，必须用 URLSearchParams 编码
+  const q = new URLSearchParams({ path, offset: String(offset), limit: String(limit) })
+  return getJson(`/api/folder?${q}`)
+}
+
+/** 左侧导航：{ inbox, archived, folders: [{path, name, depth, count, has_children}] } */
+export function fetchFolders() {
+  return getJson('/api/folders')
+}
+
 export function fetchPlatforms() {
   return getJson('/api/platforms')
 }

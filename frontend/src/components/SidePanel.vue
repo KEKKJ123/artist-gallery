@@ -43,9 +43,13 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint)
       <p>共 {{ n }} 张，其中 {{ withHint }} 张带来源建议。</p>
     </section>
 
-    <section class="todo">
+    <section v-if="inbox.isInbox" class="todo">
       <h3>归档与打 tag</h3>
       <p>粘贴链接归档、绑定画师、打 tag 将在后续版本加入（M1c / M1d）。</p>
+    </section>
+    <section v-else class="todo">
+      <h3>只读浏览</h3>
+      <p>文件夹视图目前只能查看，不能在这里移动或修改图片。</p>
     </section>
   </aside>
 </template>

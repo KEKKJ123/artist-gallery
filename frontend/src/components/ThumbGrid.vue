@@ -40,6 +40,13 @@ watch(
   },
 )
 
+// 切换到另一个文件夹 / 收件箱：滚回顶部（否则会停在上一个文件夹的滚动位置，看起来像"少了图"）
+const scroller = ref(null)
+watch(
+  () => JSON.stringify(inbox.view),
+  () => scroller.value?.scrollTo({ top: 0 }),
+)
+
 function onClick(item, e) {
   if (multiMode.value) inbox.tapToggle(item.id)
   else inbox.click(item.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
@@ -84,7 +91,7 @@ defineExpose({ cols, multiMode })
 </script>
 
 <template>
-  <div class="scroller" @wheel="onWheel" @click.self="inbox.clearSelection()">
+  <div ref="scroller" class="scroller" @wheel="onWheel" @click.self="inbox.clearSelection()">
     <div
       ref="root"
       class="grid"

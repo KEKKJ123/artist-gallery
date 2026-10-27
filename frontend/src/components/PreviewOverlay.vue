@@ -2,6 +2,8 @@
 import { ChevronLeft, ChevronRight, Maximize, X, ZoomIn, ZoomOut } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { hintLabel, isVideo } from '../lib/format.js'
+import { hintBadge } from '../lib/platforms.js'
+import PlatformBadge from './PlatformBadge.vue'
 import {
   FIT,
   clampPan,
@@ -10,16 +12,19 @@ import {
   midpoint,
   percent,
   pinchFactor,
+  pinchTo,
   step,
   toggleFit,
   wheelFactor,
   zoomAt,
 } from '../lib/zoom.js'
+import { zoomKeyAction } from '../lib/keys.js'
 import { useInboxStore } from '../stores/inbox.js'
 
 const inbox = useInboxStore()
 const item = computed(() => inbox.previewItem)
 const video = computed(() => item.value && isVideo(item.value.ext))
+const badge = computed(() => (item.value ? hintBadge(item.value.source_hint, inbox.platformNames) : null))
 const pos = computed(() => {
   const i = inbox.ids.indexOf(inbox.previewId)
   return i === -1 ? '' : `${i + 1} / ${inbox.ids.length}`
@@ -114,12 +119,20 @@ function onPointerDown(e) {
   if (!canZoom.value || (e.pointerType === 'mouse' && e.button !== 0)) return
   stage.value.setPointerCapture?.(e.pointerId)
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-  moved = 0
-  if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()]
-    pinch = { d0: distance(a, b), start: { ...view } }
-  }
+  if (pointers.size === 1) moved = 0
+  if (pointers.size === 2) beginPinch()
   dragging.value = pointers.size === 1 && zoomed.value
+}
+
+// 双指手势开始（或从三指退回两指）：以"此刻"的视图和两指位置为基准。
+// 之后每一帧都从这个基准算（见 zoom.js 的 pinchTo），所以不会累积误差。
+function beginPinch() {
+  const [a, b] = [...pointers.values()]
+  pinch = {
+    d0: distance(a, b),
+    m0: toCenter(midpoint(a, b).x, midpoint(a, b).y), // 起始两指中点（相对舞台中心）
+    start: { scale: view.scale, x: view.x, y: view.y },
+  }
 }
 
 function onPointerMove(e) {
@@ -130,11 +143,10 @@ function onPointerMove(e) {
 
   if (pointers.size === 2 && pinch) {
     const [a, b] = [...pointers.values()]
-    const m = toCenter(...Object.values(midpoint(a, b)))
-    // 以"起始状态"为基准算（而不是每帧累乘），避免误差累积
-    setView(
-      zoomAt(pinch.start, pinch.start.scale * pinchFactor(pinch.d0, distance(a, b)), m.x, m.y, img, box),
-    )
+    const mid = midpoint(a, b)
+    const m1 = toCenter(mid.x, mid.y)
+    // 缩放（两指距离变化）和平移（两指中点移动）一起处理：起始中点下的图片点跟着当前中点走
+    setView(pinchTo(pinch.start, pinch.m0, m1, pinchFactor(pinch.d0, distance(a, b)), img, box))
     moved = 99
     return
   }
@@ -150,9 +162,10 @@ function onPointerUp(e) {
   const wasSingle = pointers.size === 1
   pointers.delete(e.pointerId)
   if (pointers.size < 2) pinch = null
+  else if (pointers.size === 2) beginPinch() // 三指退回两指：重新以此刻为基准，避免跳变
   if (pointers.size === 0) dragging.value = false
-  // 手指抬起后，剩一根手指继续拖时，需要以它当前位置重新起算
-  // （pointermove 里按"上一次位置"算增量，所以这里不用额外处理）
+  // 捏合后抬起一根手指、另一根继续拖：pointermove 里按"上一次位置"算增量，天然接得上。
+  // 但这时 moved 是 99（捏合过），所以松手不会被误判成"点一下"。
 
   // 触屏双击：没有 dblclick 事件的可靠保证（尤其是 touch-action 打开时），自己判断
   if (wasSingle && e.pointerType !== 'mouse' && moved < 10) {
@@ -189,18 +202,17 @@ const zoomOut = () => canZoom.value && setView(step(view, -1, img, box))
 // 预览打开时，键盘由这里接管
 function onKey(e) {
   if (!item.value) return
-  const mod = e.ctrlKey || e.metaKey
   if (e.key === 'Escape') {
     // 放大状态下，Esc 先回到适应窗口；再按一次才关闭
     if (zoomed.value) resetView()
     else inbox.closePreview()
   } else if (e.key === ' ') {
     inbox.closePreview()
-  } else if (!mod && (e.key === '+' || e.key === '=')) {
+  } else if (zoomKeyAction(e) === 'in') {
     zoomIn()
-  } else if (!mod && (e.key === '-' || e.key === '_')) {
+  } else if (zoomKeyAction(e) === 'out') {
     zoomOut()
-  } else if (!mod && e.key === '0') {
+  } else if (zoomKeyAction(e) === 'fit') {
     resetView()
   } else if (e.key.startsWith('Arrow')) {
     if (zoomed.value) {
@@ -235,7 +247,10 @@ defineExpose({ view, pct })
   <div v-if="item" class="overlay" role="dialog" aria-label="大图预览">
     <div class="bar">
       <span class="title">{{ item.orig_name || item.rel_path }}</span>
-      <span v-if="hintLabel(item.source_hint)" class="hint">{{ hintLabel(item.source_hint) }}</span>
+      <span v-if="badge" class="hint">
+        <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="18" />
+        {{ hintLabel(item.source_hint) }}
+      </span>
       <span class="pos">{{ pos }}</span>
       <template v-if="canZoom">
         <button class="icon" aria-label="缩小" title="缩小（-）" :disabled="!zoomed" @click="zoomOut">
@@ -317,9 +332,12 @@ defineExpose({ view, pct })
   white-space: nowrap;
 }
 .hint {
-  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
   border-radius: 4px;
-  background: rgba(138, 146, 230, 0.3);
+  background: rgba(255, 255, 255, 0.1);
   font-size: 12px;
   white-space: nowrap;
 }

@@ -42,14 +42,20 @@ def _root(request: Request) -> Path:
 
 
 def api_inbox(request: Request) -> Response:
-    """GET /api/inbox?offset=0&limit=100"""
+    """GET /api/inbox?offset=0&limit=100&filter=all|hint|nohint"""
     try:
         offset = int(request.query_params.get("offset", 0))
         limit = int(request.query_params.get("limit", 100))
     except ValueError:
         return JSONResponse({"error": "offset 和 limit 必须是整数"}, status_code=400)
+    try:
+        hint_filter = inbox.normalize_hint_filter(request.query_params.get("filter"))
+    except inbox.BadFilter as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     with _conn(request) as conn:
-        return JSONResponse(inbox.list_inbox(conn, offset=offset, limit=limit))
+        return JSONResponse(
+            inbox.list_inbox(conn, offset=offset, limit=limit, hint_filter=hint_filter)
+        )
 
 
 def api_folders(request: Request) -> Response:

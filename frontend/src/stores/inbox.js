@@ -1,6 +1,6 @@
-﻿import { defineStore } from 'pinia'
+import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { ApiError, fetchFolder, fetchFolders, fetchInbox } from '../lib/api.js'
+import { ApiError, fetchFolder, fetchFolders, fetchInbox, fetchPlatforms } from '../lib/api.js'
 import { INBOX_VIEW, sameView } from '../lib/location.js'
 import * as sel from '../lib/selection.js'
 
@@ -20,14 +20,17 @@ export const useInboxStore = defineStore('inbox', () => {
   const focus = ref(null) // 键盘焦点所在的图
   const previewId = ref(null) // 正在预览的图（空格）
 
-  // 左侧导航的数据：收件箱张数、已归档总数、文件夹树
-  const nav = ref({ inbox: 0, archived: 0, folders: [] })
+  // 左侧导航的数据：收件箱张数（及其中带来源建议的张数）、已归档总数、文件夹树
+  const nav = ref({ inbox: 0, inbox_hinted: 0, archived: 0, folders: [] })
+  // 平台 id → 显示名（只用于自定义平台的标志；内置平台的显示信息写在 lib/platforms.js）
+  const platformNames = ref({})
 
   const ids = computed(() => items.value.map((i) => i.id))
   const hasMore = computed(() => items.value.length < total.value)
   const selectedItems = computed(() => items.value.filter((i) => selected.value.has(i.id)))
   const previewItem = computed(() => items.value.find((i) => i.id === previewId.value) ?? null)
   const isInbox = computed(() => view.value.kind === 'inbox')
+  const hintFilter = computed(() => (isInbox.value ? (view.value.filter ?? 'all') : 'all'))
 
   // 防止"慢请求覆盖新结果"：快速切换文件夹时，先发出的请求可能后返回。
   // 每次换视图 / 刷新都 +1，返回时发现自己已过期就丢弃。
@@ -40,7 +43,19 @@ export const useInboxStore = defineStore('inbox', () => {
 
   function fetchPage(offset) {
     const v = view.value
-    return v.kind === 'folder' ? fetchFolder(v.path, offset, PAGE) : fetchInbox(offset, PAGE)
+    return v.kind === 'folder'
+      ? fetchFolder(v.path, offset, PAGE)
+      : fetchInbox(offset, PAGE, v.filter ?? 'all')
+  }
+
+  async function loadPlatforms() {
+    if (Object.keys(platformNames.value).length) return // 平台很少变，取一次就够
+    try {
+      const list = await fetchPlatforms()
+      platformNames.value = Object.fromEntries(list.map((p) => [p.id, p.name]))
+    } catch {
+      /* 取不到就只用内置的显示信息，不影响看图 */
+    }
   }
 
   async function loadNav() {
@@ -55,7 +70,10 @@ export const useInboxStore = defineStore('inbox', () => {
   async function setView(next, { force = false } = {}) {
     if (!force && sameView(view.value, next) && (items.value.length || loading.value)) return
     const changed = !sameView(view.value, next)
-    view.value = next.kind === 'folder' ? { kind: 'folder', path: next.path } : { ...INBOX_VIEW }
+    view.value =
+      next.kind === 'folder'
+        ? { kind: 'folder', path: next.path }
+        : { kind: 'inbox', filter: next.filter ?? 'all' }
     if (changed) {
       items.value = []
       total.value = 0
@@ -71,7 +89,7 @@ export const useInboxStore = defineStore('inbox', () => {
     loading.value = true
     error.value = ''
     try {
-      const [page] = await Promise.all([fetchPage(0), loadNav()])
+      const [page] = await Promise.all([fetchPage(0), loadNav(), loadPlatforms()])
       if (mine !== epoch) return // 期间用户又切走了
       items.value = page.items
       total.value = page.total
@@ -162,6 +180,8 @@ export const useInboxStore = defineStore('inbox', () => {
     ids,
     hasMore,
     isInbox,
+    hintFilter,
+    platformNames,
     selectedItems,
     previewItem,
     setView,

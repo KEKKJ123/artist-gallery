@@ -219,3 +219,26 @@ class TestHostCheck:
 def test_not_a_library_raises(tmp_path: Path) -> None:
     with pytest.raises(db.NotALibraryError):
         create_app(tmp_path)
+
+
+class TestInboxFilterApi:
+    def test_filter_param(self, client: TestClient) -> None:
+        allr = client.get("/api/inbox").json()
+        assert allr["filter"] == "all"
+        hint = client.get("/api/inbox", params={"filter": "hint"}).json()
+        no = client.get("/api/inbox", params={"filter": "nohint"}).json()
+        assert hint["filter"] == "hint" and no["filter"] == "nohint"
+        assert hint["total"] + no["total"] == allr["total"]
+
+    def test_unknown_filter_400_json(self, client: TestClient) -> None:
+        r = client.get("/api/inbox", params={"filter": "bogus"})
+        assert r.status_code == 400
+        assert r.headers["content-type"].startswith("application/json")
+        assert "filter" in r.json()["error"]
+
+    def test_empty_filter_means_all(self, client: TestClient) -> None:
+        assert client.get("/api/inbox?filter=").json()["filter"] == "all"
+
+    def test_nav_payload_has_hinted_count(self, client: TestClient) -> None:
+        nav = client.get("/api/folders").json()
+        assert "inbox_hinted" in nav and 0 <= nav["inbox_hinted"] <= nav["inbox"]

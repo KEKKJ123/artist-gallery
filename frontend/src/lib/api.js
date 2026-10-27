@@ -28,9 +28,10 @@ async function getJson(url) {
   return resp.json()
 }
 
-/** 收件箱一页。返回 { total, offset, limit, items } */
-export function fetchInbox(offset = 0, limit = 200) {
-  return getJson(`/api/inbox?offset=${offset}&limit=${limit}`)
+/** 收件箱一页。filter：all / hint（只看有来源建议的）/ nohint。返回 { filter, total, offset, limit, items } */
+export function fetchInbox(offset = 0, limit = 200, filter = 'all') {
+  const q = new URLSearchParams({ offset: String(offset), limit: String(limit), filter })
+  return getJson(`/api/inbox?${q}`)
 }
 
 /** 某文件夹（含子文件夹）一页；path 为空 = 全部已归档。返回 { folder, total, offset, limit, items } */
@@ -40,7 +41,7 @@ export function fetchFolder(path = '', offset = 0, limit = 200) {
   return getJson(`/api/folder?${q}`)
 }
 
-/** 左侧导航：{ inbox, archived, folders: [{path, name, depth, count, has_children}] } */
+/** 左侧导航：{ inbox, inbox_hinted, archived, folders: [{path, name, depth, count, has_children}] } */
 export function fetchFolders() {
   return getJson('/api/folders')
 }

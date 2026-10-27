@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import FilterBar from './components/FilterBar.vue'
 import NavPanel from './components/NavPanel.vue'
 import PreviewOverlay from './components/PreviewOverlay.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
@@ -7,6 +8,7 @@ import SidePanel from './components/SidePanel.vue'
 import ThumbGrid from './components/ThumbGrid.vue'
 import TopBar from './components/TopBar.vue'
 import { readInitialView, syncHistory } from './lib/history.js'
+import { isHelpKey, keyBelongsToControl } from './lib/keys.js'
 import { useInboxStore } from './stores/inbox.js'
 import { usePrefsStore } from './stores/prefs.js'
 
@@ -29,18 +31,13 @@ function go(view) {
   if (window.matchMedia('(max-width: 720px)').matches) prefs.navOpen = false
 }
 const goFolder = (path) => go({ kind: 'folder', path })
-
-// 在输入框里打字时，不要把按键当快捷键
-function typing(e) {
-  const t = e.target
-  return (
-    t instanceof HTMLElement &&
-    (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))
-  )
-}
+// 切换筛选也是一次"视图变化"：进历史、地址栏带上 ?filter=…，后退键能回到上一个筛选
+const setFilter = (filter) => go({ kind: 'inbox', filter })
 
 function onKey(e) {
-  if (typing(e) || e.altKey) return
+  // 焦点在文本框里时按键归它；滑块只拿走方向键（见 lib/keys.js）。
+  // 以前把 INPUT 一律拦住，结果拖过一次"缩略图大小"滑块后，? 空格 Esc 等快捷键全部失效。
+  if (keyBelongsToControl(e.target, e.key) || e.altKey) return
   // 帮助框打开时，背后的网格不响应按键（Esc 由帮助框自己处理）
   if (helpOpen.value) return
   // 预览和帮助各自在捕获阶段接管了按键；走到这里说明它们没开
@@ -59,7 +56,9 @@ function onKey(e) {
   } else if (e.key === ' ' && !mod) {
     e.preventDefault() // 空格默认会滚动页面
     inbox.openPreview()
-  } else if (e.key === '?') {
+  } else if (isHelpKey(e)) {
+    // 中文输入法下 Shift+/ 可能是全角"？"，甚至被输入法吞成 "Process"；isHelpKey 都认
+    e.preventDefault()
     helpOpen.value = true
   }
 }
@@ -86,7 +85,12 @@ onBeforeUnmount(() => {
   history.stop()
 })
 
-const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这个文件夹里还没有图'))
+const emptyTitle = computed(() => {
+  if (!inbox.isInbox) return '这个文件夹里还没有图'
+  if (inbox.hintFilter === 'hint') return '收件箱里没有带来源建议的图'
+  if (inbox.hintFilter === 'nohint') return '收件箱里没有"没建议"的图了'
+  return '收件箱是空的'
+})
 </script>
 
 <template>
@@ -97,6 +101,9 @@ const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这�
       <span>{{ inbox.error }}</span>
       <button @click="inbox.load()">重试</button>
     </div>
+
+    <!-- 收件箱专属：按来源建议筛选。文件夹视图里没有"来源建议"这个概念，不显示 -->
+    <FilterBar v-if="inbox.isInbox" @change="setFilter" />
 
     <main
       class="main"
@@ -111,7 +118,11 @@ const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这�
           <p>
             <strong>{{ emptyTitle }}</strong>
           </p>
-          <p v-if="inbox.isInbox">
+          <p v-if="inbox.isInbox && inbox.hintFilter !== 'all'">
+            试试
+            <button class="linkish" @click="setFilter('all')">查看全部</button>。
+          </p>
+          <p v-else-if="inbox.isInbox">
             用命令行导入图片：<code>artist-gallery import &lt;图库&gt; &lt;文件夹&gt;</code
             >，再点右上角的刷新。
           </p>

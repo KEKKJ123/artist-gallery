@@ -45,7 +45,8 @@ const here = (path) => sameView(inbox.view, { kind: 'folder', path })
 
 <template>
   <nav class="nav" aria-label="文件夹导航">
-    <button class="row top" :class="{ active: isCurrentInbox }" @click="go({ kind: 'inbox' })">
+    <!-- 点收件箱：总是回到"全部"（筛选是收件箱内部的事，在顶部筛选条里切） -->
+    <button class="row top" :class="{ active: isCurrentInbox }" @click="go({ kind: 'inbox', filter: 'all' })">
       <Inbox :size="16" />
       <span class="label">收件箱</span>
       <span class="count" :class="{ attention: inbox.nav.inbox > 0 }">{{ inbox.nav.inbox }}</span>

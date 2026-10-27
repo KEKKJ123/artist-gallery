@@ -14,13 +14,6 @@ export function hintLabel(hint) {
   return hint.post_id ? `可能是 ${name}:${hint.post_id}` : `可能来自 ${name}，需补链接`
 }
 
-/** 角标的短写，网格里空间小。 */
-export function hintShort(hint) {
-  if (!hint || !hint.platform) return null
-  const name = PLATFORM_NAMES[hint.platform] ?? hint.platform
-  return hint.post_id ? `${name} ${hint.post_id}` : `${name}?`
-}
-
 /**
  * 缩略图占位的宽高比（宽/高）。数据库里有宽高就用，没有（视频）用 4/3。
  * 限制在 0.4 ~ 2.5 之间，免得极端长图把网格撑得很怪。

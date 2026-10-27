@@ -67,6 +67,28 @@ export function zoomAt(view, nextScale, px, py, img, box) {
   return clampPan(next, img, box)
 }
 
+/**
+ * 双指手势：让"起始时两指中点下面的那个图片点"始终跟着"当前两指中点"走。
+ *
+ * 一次捏合其实同时包含两件事：缩放（两指距离变了）和平移（两指中点动了）。
+ * 只处理缩放、不处理中点移动的话，手指一晃图就会漂，甚至反向——这正是旧实现的问题。
+ *
+ *   start  手势开始时的视图 { scale, x, y }
+ *   m0     手势开始时的两指中点（相对窗口中心）
+ *   m1     现在的两指中点（相对窗口中心）
+ *   factor 两指距离的变化倍率（现在 / 开始）
+ *
+ * 推导：开始时 m0 下面的图片点，在"适应窗口尺寸图"里的坐标是 u = (m0 - start.xy) / start.scale。
+ * 要它现在落在 m1 下，新偏移就是 xy = m1 - u * newScale。
+ */
+export function pinchTo(start, m0, m1, factor, img, box) {
+  const s = clampScale(start.scale * factor)
+  if (s <= MIN_SCALE) return { ...FIT }
+  const ux = (m0.x - start.x) / start.scale
+  const uy = (m0.y - start.y) / start.scale
+  return clampPan({ scale: s, x: m1.x - ux * s, y: m1.y - uy * s }, img, box)
+}
+
 /** 滚轮一格对应的缩放倍率。deltaY 向上（<0）放大。用指数保证"放大再缩小"能回到原值。 */
 export function wheelFactor(deltaY, deltaMode = 0) {
   // deltaMode 1 = 按"行"滚动（部分鼠标/浏览器），换算成像素量级

@@ -5,24 +5,28 @@ import { onBeforeUnmount, onMounted } from 'vue'
 const props = defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
 
-// [按键, 说明, 是否已可用]。后续里程碑才有的先列出来但标灰，让人知道会有。
+// [左侧显示, 说明, 是否已可用, 可选 'label']。
+// 第四项为 'label' 表示左侧不是键盘按键（鼠标 / 触屏手势、界面区域名），画成虚线标签而不是键帽。
+// 后续里程碑才有的先列出来但标灰，让人知道会有。
 const groups = [
   {
     title: '选择',
     rows: [
-      ['点击', '只选这一张', true],
+      ['点击', '只选这一张', true, 'label'],
       ['Ctrl + 点击', '增减一张', true],
       ['Shift + 点击', '选中起点到这里的一段', true],
       ['Ctrl + A', '全选', true],
       ['Esc', '取消选择', true],
       ['← → ↑ ↓', '移动焦点（同时选中）', true],
       ['Shift + 方向键', '扩展选择范围', true],
+      ['长按（手机）', '进入多选，之后每点一张就增减一张；全部取消后自动退出', true, 'label'],
     ],
   },
   {
     title: '查看',
     rows: [
-      ['空格 / 双击', '打开大图预览；预览中再按空格关闭', true],
+      ['空格', '打开大图预览；预览中再按空格关闭', true],
+      ['双击', '打开大图（电脑）；多选期间不会触发', true, 'label'],
       ['Ctrl + 滚轮', '调整缩略图大小', true],
       ['?', '显示本帮助', true],
     ],
@@ -30,9 +34,9 @@ const groups = [
   {
     title: '文件夹',
     rows: [
-      ['左侧列表', '点文件夹查看里面的图（含子文件夹）；三角展开 / 收起子文件夹', true],
-      ['面包屑', '顶栏的"已归档 › 精选 › 红豆"，点任意一级回到那里', true],
-      ['浏览器后退', '回到上一个文件夹；刷新会停在当前文件夹，链接可收藏', true],
+      ['左侧列表', '点文件夹查看里面的图（含子文件夹）；三角展开 / 收起子文件夹', true, 'label'],
+      ['面包屑', '顶栏的"已归档 › 精选 › 红豆"，点任意一级回到那里', true, 'label'],
+      ['浏览器后退', '回到上一个文件夹；刷新会停在当前文件夹，链接可收藏', true, 'label'],
       ['Esc', '手机上先关闭文件夹抽屉', true],
     ],
   },
@@ -40,13 +44,13 @@ const groups = [
     title: '大图预览',
     rows: [
       ['← →', '切换上一张 / 下一张（放大后改为平移）', true],
-      ['滚轮', '以光标位置为中心缩放', true],
-      ['拖动', '放大后平移', true],
-      ['双击', '在"适应窗口"和 100% 之间切换', true],
+      ['滚轮', '以光标位置为中心缩放', true, 'label'],
+      ['拖动', '放大后平移', true, 'label'],
+      ['双击', '在"适应窗口"和 100% 之间切换', true, 'label'],
       ['+ -', '放大 / 缩小一档', true],
       ['0', '回到适应窗口', true],
       ['Esc', '放大时先回到适应窗口；再按一次关闭', true],
-      ['双指', '手机上捏合缩放、单指拖动平移', true],
+      ['双指（手机）', '捏合缩放、单指拖动平移、双击切换', true, 'label'],
     ],
   },
   {
@@ -83,9 +87,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
       <section v-for="g in groups" :key="g.title">
         <h3>{{ g.title }}</h3>
         <ul>
-          <li v-for="[key, desc, ready] in g.rows" :key="key" :class="{ later: !ready }">
-            <span class="keys"><kbd v-for="k in key.split(' + ')" :key="k">{{ k }}</kbd></span>
-            <span>{{ desc }}</span>
+          <li v-for="row in g.rows" :key="row[0]" :class="{ later: !row[2] }">
+            <span class="keys">
+              <!-- 第四项为 'label' 表示这不是键盘按键（鼠标操作、界面区域名等），用标签样式而不是键帽 -->
+              <span v-if="row[3] === 'label'" class="label">{{ row[0] }}</span>
+              <template v-else>
+                <kbd v-for="k in row[0].split(' + ')" :key="k">{{ k }}</kbd>
+              </template>
+            </span>
+            <span>{{ row[1] }}</span>
           </li>
         </ul>
       </section>
@@ -144,6 +154,27 @@ li {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  /* 关键：按键框各自保持自己的高度，顶端对齐。
+     不写的话 flex 默认 align-items: stretch，右侧说明折成两行时，左边的按键框会被拉高成同样高度。 */
+  align-items: flex-start;
+  align-content: flex-start;
+}
+/* 整行左右两列都顶端对齐：说明文字多行时，左边不会被拉伸 */
+li {
+  align-items: start;
+}
+.keys kbd {
+  white-space: nowrap;
+  line-height: 1.5;
+}
+/* 不是"按键"的说明性标签（如"左侧列表""面包屑"）：不画成键帽，用普通小标签，避免误导 */
+.label {
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  white-space: nowrap;
 }
 .later {
   opacity: 0.5;

@@ -1,106 +1,56 @@
 # CHANGELOG
 
-格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
+格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，每个版本按"新增 / 变更 / 修复"分类。
+项目尚未发布正式版本，下面的 `[Unreleased]` 记录自 M0 以来的全部改动，按里程碑从新到旧排列。
+每个功能性 PR 都在 `[Unreleased]` 的对应分类下追加一条。
 
 ## [Unreleased]
-### 修复：.gitignore 会误伤前端文件
-- 为防止用户图片进仓库而写的 `*.png`、`*.webp` 等规则，会同时吞掉前端构建产物里的图标（`server/static/`）和前端源码里的图片，提交后网页会缺图。现为 `server/static/`、`frontend/` 加了例外。
-- `images/`、`library/` 改为只匹配仓库根目录（`/images/`、`/library/`），不再误伤 `frontend/src/assets/images/`、`frontend/src/views/library/` 这类源码目录。
-- 补充忽略 `*.bmp` 和常见视频格式（`.mp4` `.webm` `.mov` `.mkv` `.avi` `.m4v`），与导入器支持的格式一致。
-- 验证方式：在临时仓库里放 11 个"应当能提交"和 21 个"必须被挡住"的路径，新规则 0 误伤、0 漏网；同一套检查对旧规则能报出 7 处误伤。
 
-### 文档整理
-- 删除 `docs/前端风格建议.md`（原始建议文档，曾直接推入 main）：它主张"一律用撤销代替确认"，与 ADR 0005 / 0007 矛盾，且与 `docs/frontend-style.md` 内容重叠，留着会让人读到过时规则。
-- `docs/frontend-style.md` 第 5 节对齐 ADR 0007 的最新条款（撤销未交付不得免确认、连续撤销、撤销失败不强行还原、不可逆记录不进撤销栈），去掉对已删除文档的引用。
-
-### 前端风格与确认策略（文档，设计文档升到 v0.7）
-- 新增 `docs/frontend-style.md`：视觉（双主题跟随系统、CSS 变量、系统字体）、缩略图网格、收件箱键盘操作、技术选型（Vue 3 + Pinia + 手写组件，不用组件库）、明确推迟项。由一份外部建议文档评估后改写。
-- 新增 ADR 0007：确认与撤销按"能否撤回、影响范围"分三档——小范围可撤销操作不弹确认、靠撤销；大范围保留"A → B"清单确认；不可撤销操作必须确认（ADR 0005 不变）。ADR 0002 状态行标注被细化。
-- 里程碑调整：撤销最近一次归档提前到 M1c（与归档同时交付）；M1d / M1e 逐步扩展撤销范围。
-- 设计文档 2.1 节"批量操作"按 ADR 0007 改写。
-- ADR 0007 补充：撤销未落地的操作不得免确认；撤销可连续进行；`delete_source` 等不可逆记录不进撤销栈；撤销失败时保留现状、不覆盖不删文件。AGENTS.md 规则 10、设计文档 2.1 节同步。
-
-### 许可证与公开准备
-- 新增 `LICENSE`：GPL-2.0-or-later（GNU 官方原文）。选择理由：与计划在 M3 调用的 gallery-dl（GPL-2.0-only）兼容，且保留升级到 GPL-3.0 的余地。
-- `pyproject.toml` 声明 `license = "GPL-2.0-or-later"`；构建依赖 setuptools 提升到 ≥77（SPDX 写法的最低版本）。
-- README 改为面向外部读者：功能现状、快速开始、技术栈、许可证、贡献入口。
-- CONTRIBUTING 新增"对外贡献者"一节（Fork 流程、贡献默认按 GPL-2.0-or-later 授权）。
-- 公开时机：M1 全部完成后（有可用界面再公开）。
-- 修复：`pip install`（非可编辑模式）打出的包里漏了 `server/static/`，导致 `serve` 首页返回 500。M1a 只在 `pip install -e` 下测过所以没发现；现已声明 package-data，并用"打 wheel → 干净 venv 安装 → 启动 serve"验证。
-
-### M1a：本地服务与缩略图
-- 新增 `artist-gallery serve <图库> [--host] [--port]`：启动本地网页服务，默认只监听 127.0.0.1:8765。
-- 新增 `server/app.py`（Starlette）：`GET /api/inbox`（分页）、`GET /api/platforms`、`GET /thumbs/{sha256}`、`GET /images/{路径}`；未知 `/api/*` 返回 404 JSON。
-- 安全：默认只接受 Host 为 localhost / 127.0.0.1 的请求（防 DNS rebinding）；`--host` 设为非本机地址时才放开并提示"无登录保护"；`/images/` 拒绝目录穿越。
-- 新增 `core/thumbnail.py`：静态图懒生成 400px WebP 缩略图，缓存在 `.cache/thumbs/`（按 sha256 命名）；先写临时文件再改名，按 EXIF 摆正方向；视频和 GIF 不生成（返回 204）。
-- 新增 `core/inbox.py`：收件箱与平台列表查询。
-- `server/static/index.html` 为占位页，真正的前端在 M1b 加入。
-- 运行时依赖新增 starlette、uvicorn（均为纯 Python，符合 ADR 0003）；测试依赖新增 httpx2。
-- ADR 0006：M1 不开启 SQLite WAL（图库靠复制文件夹同步，WAL 在进程被杀时可能丢改动）。
-- 测试增至 128 个。
-
-### 变更：删除源文件改为用户确认（ADR 0005）
-- `import` 只复制，不再自动删除源文件；`--copy` 参数移除。
-- 新增 `--delete-source ask|yes|no`（默认 ask：导入完成后提示 `[y/N]`，回车即不删；脚本/管道下视为不删）。
-- 新增 `core.importer.delete_sources()`：删除前再次校验图库副本与源文件的 sha256；只删本次新入库的文件。删除记入 op_log。
-
-### M0 收尾审查（2026-10-27）
-- 复制后 fsync 文件和目录再删源文件：断电时不会出现"新文件没落盘、源文件已删"。
-- 同批次重复判定只在真正入库成功后记录：第一份复制失败时，内容相同的第二份不再被误跳过。
-- QQ 号防护词收窄：英文词要求单词边界（`guide`、`fluid` 不再命中 `uid`），去掉单字"群"（避免误伤"群像"）。
-- CLI 对数据库版本过新、数据库损坏、权限错误等给出一行错误，不再抛出 traceback。
-- `status` 平台名对齐。
-- 用 188 个真实文件名做端到端测试：188 个全部入库，自动归档 62，源文件夹清空，无残留 `.part`。
-
-### 协作
-- 新增 `CONTRIBUTING.md`：分支 + Pull Request + Squash and merge，`main` 不直接推送。
-- 新增 GitHub Actions CI：Windows / Ubuntu × Python 3.12 / 3.14，跑 ruff 和 pytest。
-- 新增 PR 模板；AGENTS.md 的 Git 约定改为走 PR。
-
-### 修复（代码审查 2026-10-26）
-- 内置平台规则移到 `core/platforms.py`，打开图库时同步进数据库：旧图库自动用上新规则，此前已建的库不会再卡在旧正则上。迁移 v3 → v4 加 `platform.builtin` 列。
-- 新增 `db.open_library()` 统一"连接 → 迁移 → 同步内置平台"。
-- 迁移改为显式事务：失败整体回滚（之前 `executescript` 会先提交，可能留下改了一半的库）。
-- 重名判断不区分大小写（Windows / Android 共享存储不区分）。
-- 收件箱文件名清理：去掉 Windows 非法字符、保留名，截断到 150 字节以内（Android 上限 255 字节）。
-- 从图库的上级目录导入时，不会把图库自己的文件再扫一遍。
-- 内置正则改用 ASCII 模式，全角数字不会被当成 ID。
-- 自定义平台的无效正则只记日志、不让导入崩溃。
-- Ctrl+C 中断时清理已复制的副本。
-- 迁移测试改为用真实的 v1 schema 建库。
-- Pixiv 单页规则 `标题_ID`：标题含 QQ / 头像 / 微信 / 群 / 账号 / avatar / uid 等字样时降为中置信，防止把 QQ 号当成作品 ID。
-
-### 变更（按真实样本校准识别）
-- 用 188 个真实文件名样本校准：自动归档从 22 个提高到 62 个；中置信误报从 68 个（含大量哈希/QQ 导出名被误认）降到 1 个真实有效的。
-- 新增 Pixiv 单页 `标题_ID` 高置信规则；数字须"孤立"（两侧非字母数字）；Pixiv ID 收紧为 8 位或 1 开头的 9 位，X ID 为 17–20 位。
-- 内置 Zerochan 平台（迁移 v2 → v3）。
-- X 网页另存的 15 位 media key 识别为"可能来自 X、ID 待补"。
-- 视频与图片同样按文件名分类导入（不读宽高、不做缩略图和画质处理）。
-- 扫描文件夹时跳过隐藏文件夹（如 `.thumbnails`）。
-- 设计文档 v0.6：新增第 10 节未来构想（画质优选）。
-
-### 新增（M0 导入）
-- `artist-gallery import`：扫描文件/文件夹 → sha256 去重 → 文件名识别来源 → 复制校验后移入图库（`--copy` 保留源文件，`-n` 预演）。
-- 识别规则（`core/recognize.py`）：本程序格式、Pixiv `_p` 格式、gallery-dl X 格式自动归档；孤立数字作为中置信建议进收件箱。
-- `artist-gallery status`：图库统计。
-- 安全文件复制 `core/fileops.py`：写入 `.part` 临时文件，校验 hash 后再落位。
-- 数据库迁移 v1 → v2：`image` 新增 `orig_name`、`source_hint`；内置文件名正则加数字边界。
-- 测试增至 37 个（识别规则、导入、去重、重名、损坏文件、迁移）。
-
-### 新增（基础架构）
-- 仓库基础架构：`AGENTS.md`、`pyproject.toml`、`CHANGELOG.md`、`docs/decisions/`。
-- Python 包骨架 `artist_gallery`：数据库结构 v1（`schema.sql`）、迁移机制（`PRAGMA user_version`）、CLI `init` 命令。
-- 内置平台 Pixiv、X 的链接 / 文件名解析正则。
-- pytest 测试：建库、版本号、内置平台正则。
-- ADR 0003：Android 改为 APK 发布（Briefcase + Chaquopy，CI 编译），Web 框架改用 Starlette；设计文档升到 v0.3。
-- 测试 `test_layering.py`：检查 `core/` 不 import Web 框架。
-
-- ADR 0004：Android 默认图库放 App 私有目录、零存储权限，Photo Picker/SAF 导入，共享文件夹为可选高级项；设计文档升到 v0.4。
+### 新增
+- **M1a 本地网页服务**
+  - `artist-gallery serve <图库> [--host] [--port]`：启动本地服务，默认只监听 127.0.0.1:8765。
+  - `server/app.py`（Starlette）：`GET /api/inbox`（分页）、`GET /api/platforms`、`GET /thumbs/{sha256}`、`GET /images/{路径}`；未知 `/api/*` 返回 404 JSON。
+  - `core/thumbnail.py`：静态图懒生成 400px WebP 缩略图，缓存在 `.cache/thumbs/`（按 sha256 命名）；先写临时文件再改名，按 EXIF 摆正方向；视频和 GIF 不生成（返回 204）。
+  - `core/inbox.py`：收件箱与平台列表查询。
+  - `server/static/index.html` 为占位页，真正的前端在 M1b 加入。
+  - 运行时依赖新增 starlette、uvicorn（均为纯 Python，符合 ADR 0003）；测试依赖新增 httpx2。
+- **许可证与公开准备**：`LICENSE`（GPL-2.0-or-later，GNU 官方原文；与计划在 M3 调用的 gallery-dl 的 GPL-2.0-only 兼容，且保留升级到 GPL-3.0 的余地）；README 改为面向外部读者；CONTRIBUTING 新增"对外贡献者"一节。公开时机：M1 全部完成后。
+- **前端风格指南**：`docs/frontend-style.md`——双主题跟随系统、CSS 变量、系统字体、缩略图网格、收件箱键盘操作、技术选型（Vue 3 + Pinia + 手写组件，不用组件库）、明确推迟项。
+- **ADR 0006**：M1 不开启 SQLite WAL（图库靠复制文件夹同步，WAL 在进程被杀时可能丢改动）。
+- **ADR 0007**：确认与撤销按"能否撤回、影响范围"分三档——小范围可撤销操作不弹确认、靠撤销；大范围保留"A → B"清单确认；不可撤销操作必须确认（ADR 0005 不变）。含补充条款：撤销未交付的操作不得免确认；可连续撤销；`delete_source` 等不可逆记录不进撤销栈；撤销失败时保留现状、不覆盖不删文件。AGENTS.md 规则 10 同步。
+- **协作流程**：`CONTRIBUTING.md`（分支 + Pull Request + Squash and merge，`main` 不直接推送）、GitHub Actions CI（Windows / Ubuntu × Python 3.12 / 3.14，跑 ruff 和 pytest）、PR 模板。
+- **M0 导入**
+  - `artist-gallery import`：扫描文件/文件夹 → sha256 去重 → 文件名识别来源 → 复制校验后入库；`-n` 预演。
+  - 识别规则（`core/recognize.py`）：本程序格式、Pixiv `_p` 格式、Pixiv 单页 `标题_ID`、gallery-dl 的 X 格式、Zerochan 自动归档；孤立数字作为中置信建议进收件箱；X 网页另存的 15 位 media key 识别为"可能来自 X、ID 待补"。
+  - 内置平台 Pixiv、X、Zerochan。
+  - `artist-gallery status`：图库统计。
+  - 安全文件复制 `core/fileops.py`：写入 `.part` 临时文件，校验 hash 后再落位。
+  - `core.importer.delete_sources()`：用户确认后删除源文件，删除前再次校验图库副本与源文件的 sha256，只删本次新入库的文件；删除记入 op_log。
+- **基础架构**：仓库骨架（`AGENTS.md`、`pyproject.toml`、`CHANGELOG.md`、`docs/decisions/`）；数据库结构 v1（`schema.sql`）与迁移机制（`PRAGMA user_version`）；CLI `init`；`test_layering.py` 检查 `core/` 不 import Web 框架；ADR 0001–0005。
 
 ### 变更
+- **删除源文件改为用户确认**（ADR 0005）：`import` 只复制，不再自动删除源文件，`--copy` 参数移除；新增 `--delete-source ask|yes|no`（默认 ask：导入完成后提示 `[y/N]`，回车即不删；脚本/管道下视为不删）。
+- **撤销提前**：撤销最近一次归档提前到 M1c，与归档同时交付；M1d / M1e 逐步扩展撤销范围。设计文档升到 v0.7，2.1 节"批量操作"按 ADR 0007 改写。
+- **识别规则按真实样本校准**：用 188 个真实文件名样本，自动归档从 22 个提高到 62 个，中置信误报从 68 个降到 1 个真实有效的。数字须"孤立"（两侧非字母数字）；Pixiv ID 收紧为 8 位或 1 开头的 9 位，X ID 为 17–20 位。
+- 视频与图片同样按文件名分类导入（不读宽高、不做缩略图和画质处理）；扫描文件夹时跳过隐藏文件夹（如 `.thumbnails`）。
 - 数据库代码移到 `artist_gallery.core`（`core/db.py`、`core/schema.sql`）。
-- AGENTS.md 规则 6 改为"运行时依赖须为纯 Python 或 Chaquopy 有现成包"；新增规则 7（分层）；补充 Termux 安装注意事项。
+- 设计文档 v0.6：新增第 10 节未来构想（画质优选）。
+- 设计文档第 3 节标注为"概念模型"，注明实际结构以 `schema.sql` 加迁移为准，并列出实际多出的列；补全 CLI 小节（`init`、`serve`）；入口命令统一写 `artist-gallery`。
+- 文档整理：删除 `docs/前端风格建议.md`（原始建议文档，曾直接推入 main）——它主张"一律用撤销代替确认"，与 ADR 0005 / 0007 矛盾，且与 `docs/frontend-style.md` 重叠。
 
-## 2026-10-26
-### 新增
-- 设计文档 v0.2。
+### 修复
+- **`.gitignore` 误伤前端文件**：为防止用户图片进仓库而写的 `*.png`、`*.webp` 等规则，会同时吞掉前端构建产物里的图标（`server/static/`）和前端源码里的图片。现为 `server/static/`、`frontend/` 加了例外；`images/`、`library/` 改为只匹配仓库根目录；补充忽略 `*.bmp` 和常见视频格式。验证方式：在临时仓库里放 11 个"应当能提交"和 21 个"必须被挡住"的路径，新规则 0 误伤、0 漏网；同一套检查对旧规则能报出 7 处误伤。
+- **`pip install`（非可编辑模式）漏打 `server/static/`**，导致 `serve` 首页返回 500。M1a 只在 `pip install -e` 下测过所以没发现；现已声明 package-data，并用"打 wheel → 干净 venv 安装 → 启动 serve"验证。
+- **M0 收尾审查**：复制后 fsync 文件和目录再删源文件，断电时不会出现"新文件没落盘、源文件已删"；同批次重复判定只在真正入库成功后记录；QQ 号防护词收窄（英文词要求单词边界，去掉单字"群"）；CLI 对数据库版本过新、数据库损坏、权限错误等给出一行错误，不再抛出 traceback；`status` 平台名对齐。
+- **代码审查（2026-10-26）**
+  - 内置平台规则移到 `core/platforms.py`，打开图库时同步进数据库：旧图库自动用上新规则。迁移 v3 → v4 加 `platform.builtin` 列。
+  - 新增 `db.open_library()` 统一"连接 → 迁移 → 同步内置平台"。
+  - 迁移改为显式事务：失败整体回滚（之前 `executescript` 会先提交，可能留下改了一半的库）。
+  - 重名判断不区分大小写（Windows / Android 共享存储不区分）。
+  - 收件箱文件名清理：去掉 Windows 非法字符、保留名，截断到 150 字节以内（Android 上限 255 字节）。
+  - 从图库的上级目录导入时，不会把图库自己的文件再扫一遍。
+  - 内置正则改用 ASCII 模式，全角数字不会被当成 ID。
+  - 自定义平台的无效正则只记日志、不让导入崩溃。
+  - Ctrl+C 中断时清理已复制的副本。
+  - 迁移测试改为用真实的 v1 schema 建库。
+  - Pixiv 单页规则 `标题_ID`：标题含 QQ / 头像 / 微信 / 账号 / avatar / uid 等字样时降为中置信，防止把 QQ 号当成作品 ID。

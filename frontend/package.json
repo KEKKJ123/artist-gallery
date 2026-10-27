@@ -1,0 +1,29 @@
+{
+  "name": "artist-gallery-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "artist-gallery 的网页界面。构建产物输出到 ../src/artist_gallery/server/static/ 并提交进仓库。",
+  "license": "GPL-2.0-or-later",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.61.0",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.44"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^30.1.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

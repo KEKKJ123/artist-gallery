@@ -2,6 +2,8 @@
 import { ChevronLeft, ChevronRight, Maximize, X, ZoomIn, ZoomOut } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { hintLabel, isVideo } from '../lib/format.js'
+import { hintBadge } from '../lib/platforms.js'
+import PlatformBadge from './PlatformBadge.vue'
 import {
   FIT,
   clampPan,
@@ -22,6 +24,7 @@ import { useInboxStore } from '../stores/inbox.js'
 const inbox = useInboxStore()
 const item = computed(() => inbox.previewItem)
 const video = computed(() => item.value && isVideo(item.value.ext))
+const badge = computed(() => (item.value ? hintBadge(item.value.source_hint, inbox.platformNames) : null))
 const pos = computed(() => {
   const i = inbox.ids.indexOf(inbox.previewId)
   return i === -1 ? '' : `${i + 1} / ${inbox.ids.length}`
@@ -244,7 +247,10 @@ defineExpose({ view, pct })
   <div v-if="item" class="overlay" role="dialog" aria-label="大图预览">
     <div class="bar">
       <span class="title">{{ item.orig_name || item.rel_path }}</span>
-      <span v-if="hintLabel(item.source_hint)" class="hint">{{ hintLabel(item.source_hint) }}</span>
+      <span v-if="badge" class="hint">
+        <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="18" />
+        {{ hintLabel(item.source_hint) }}
+      </span>
       <span class="pos">{{ pos }}</span>
       <template v-if="canZoom">
         <button class="icon" aria-label="缩小" title="缩小（-）" :disabled="!zoomed" @click="zoomOut">
@@ -326,9 +332,12 @@ defineExpose({ view, pct })
   white-space: nowrap;
 }
 .hint {
-  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
   border-radius: 4px;
-  background: rgba(138, 146, 230, 0.3);
+  background: rgba(255, 255, 255, 0.1);
   font-size: 12px;
   white-space: nowrap;
 }

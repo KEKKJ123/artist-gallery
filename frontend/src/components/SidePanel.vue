@@ -1,11 +1,14 @@
 <script setup>
 import { computed } from 'vue'
 import { hintLabel } from '../lib/format.js'
+import { hintBadge } from '../lib/platforms.js'
 import { useInboxStore } from '../stores/inbox.js'
+import PlatformBadge from './PlatformBadge.vue'
 
 const inbox = useInboxStore()
 const n = computed(() => inbox.selected.size)
 const one = computed(() => (n.value === 1 ? inbox.selectedItems[0] : null))
+const badge = computed(() => (one.value ? hintBadge(one.value.source_hint, inbox.platformNames) : null))
 
 // 选中的图里有多少带来源建议
 const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint).length)
@@ -35,7 +38,13 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint)
         <dt v-if="one.width">尺寸</dt>
         <dd v-if="one.width">{{ one.width }} × {{ one.height }}</dd>
         <dt>来源建议</dt>
-        <dd>{{ hintLabel(one.source_hint) || '无' }}</dd>
+        <dd class="hintrow">
+          <template v-if="badge">
+            <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="20" />
+            <span>{{ hintLabel(one.source_hint) }}</span>
+          </template>
+          <template v-else>无</template>
+        </dd>
       </dl>
     </section>
 
@@ -108,6 +117,11 @@ dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.hintrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .mono {
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;

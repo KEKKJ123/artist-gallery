@@ -110,7 +110,12 @@ class TestFolderTree:
         assert t["folders"] == [] and t["archived"] == 1
 
     def test_empty_library(self, conn: sqlite3.Connection) -> None:
-        assert browse.list_folders(conn) == {"inbox": 0, "archived": 0, "folders": []}
+        assert browse.list_folders(conn) == {
+            "inbox": 0,
+            "inbox_hinted": 0,
+            "archived": 0,
+            "folders": [],
+        }
 
     def test_folder_named_like_inbox_but_nested_is_not_hidden(
         self, conn: sqlite3.Connection
@@ -219,3 +224,106 @@ class TestFolderImages:
             r["items"][0]["file_url"]
             == "/images/%E6%88%91%E7%9A%84%20%E6%94%B6%E8%97%8F/%E7%BA%A2%E8%B1%86%201.png"
         )
+
+
+class TestInboxHintFilter:
+    """收件箱"只看有来源建议的图"。筛选必须在服务端做：收件箱是分页的，前端只过滤已加载的页会漏图、总数也不对。"""
+
+    HINT = '{"platform": "pixiv", "post_id": "12345678", "page": 0}'
+    WEAK = '{"platform": "x", "post_id": null, "page": null}'
+
+    def _add_inbox(self, c: sqlite3.Connection, name: str, hint: str | None) -> None:
+        global _n
+        _n += 1
+        c.execute(
+            "INSERT INTO image (work_id, rel_path, sha256, source_hint) VALUES (NULL, ?, ?, ?)",
+            (f"images/_inbox/{name}", f"{_n:064x}", hint),
+        )
+        c.commit()
+
+    @pytest.fixture
+    def mixed(self, conn: sqlite3.Connection) -> sqlite3.Connection:
+        self._add_inbox(conn, "a.png", self.HINT)
+        self._add_inbox(conn, "b.png", None)
+        self._add_inbox(conn, "c.png", self.WEAK)  # 只知道平台（X 的 media key）也算有建议
+        self._add_inbox(conn, "d.png", "")  # 空串当作没有
+        self._add_inbox(conn, "e.png", self.HINT)
+        add(conn, "images/pixiv/z.png")  # 已归档的不属于收件箱，任何筛选都不应出现
+        return conn
+
+    @staticmethod
+    def _names(r: dict) -> list[str]:
+        return [i["rel_path"].rsplit("/", 1)[1] for i in r["items"]]
+
+    def test_all_is_default(self, mixed: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        r = inbox.list_inbox(mixed)
+        assert r["filter"] == "all" and r["total"] == 5
+
+    def test_hint_only(self, mixed: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        r = inbox.list_inbox(mixed, hint_filter="hint")
+        assert self._names(r) == ["a.png", "c.png", "e.png"]
+        assert r["total"] == 3 and r["filter"] == "hint"
+
+    def test_nohint_is_exact_complement_including_empty_string(
+        self, mixed: sqlite3.Connection
+    ) -> None:
+        from artist_gallery.core import inbox
+
+        r = inbox.list_inbox(mixed, hint_filter="nohint")
+        assert self._names(r) == ["b.png", "d.png"]  # NULL 和 '' 都算"没有"
+        hint = inbox.list_inbox(mixed, hint_filter="hint")["total"]
+        assert (
+            hint + r["total"] == inbox.list_inbox(mixed)["total"]
+        )  # 两类加起来恰好是全部，不重不漏
+
+    def test_archived_images_never_appear(self, mixed: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        for f in ("all", "hint", "nohint"):
+            assert "z.png" not in self._names(inbox.list_inbox(mixed, hint_filter=f))
+
+    def test_total_and_paging_follow_the_filter_not_the_whole_inbox(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """核心：第 1 页全是没建议的，有建议的都在后面——前端只滤已加载页就会一张都看不到。"""
+        from artist_gallery.core import inbox
+
+        for i in range(30):
+            self._add_inbox(conn, f"n{i:02d}.png", None)
+        for i in range(5):
+            self._add_inbox(conn, f"h{i}.png", self.HINT)
+        first = inbox.list_inbox(conn, limit=10, hint_filter="hint")
+        assert first["total"] == 5 and len(first["items"]) == 5  # 一页就取全，没被前 30 张挤掉
+        assert inbox.list_inbox(conn, limit=10)["total"] == 35
+        seen: list[str] = []
+        for off in range(0, 35, 10):
+            seen += self._names(inbox.list_inbox(conn, offset=off, limit=10, hint_filter="nohint"))
+        assert len(seen) == 30 and len(set(seen)) == 30
+
+    def test_unknown_filter_is_rejected_not_silently_all(self, conn: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        with pytest.raises(inbox.BadFilter):
+            inbox.list_inbox(conn, hint_filter="hints")
+        assert inbox.normalize_hint_filter(None) == "all"
+        assert inbox.normalize_hint_filter("") == "all"
+
+    def test_count_hinted_and_nav_payload(self, mixed: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        assert inbox.count_inbox_hinted(mixed) == 3
+        nav = browse.list_folders(mixed)
+        assert nav["inbox"] == 5 and nav["inbox_hinted"] == 3
+        assert browse.list_folders(mixed)["archived"] == 1  # 已归档计数不受影响
+
+    def test_empty_inbox(self, conn: sqlite3.Connection) -> None:
+        from artist_gallery.core import inbox
+
+        for f in ("all", "hint", "nohint"):
+            r = inbox.list_inbox(conn, hint_filter=f)
+            assert r["total"] == 0 and r["items"] == []
+        assert browse.list_folders(conn)["inbox_hinted"] == 0

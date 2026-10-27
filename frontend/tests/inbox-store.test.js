@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/lib/api.js', async () => {
   const actual = await vi.importActual('../src/lib/api.js')
-  return { ...actual, fetchInbox: vi.fn(), fetchFolder: vi.fn(), fetchFolders: vi.fn() }
+  return { ...actual, fetchInbox: vi.fn(), fetchFolder: vi.fn(), fetchFolders: vi.fn(), fetchPlatforms: vi.fn() }
 })
-import { ApiError, fetchFolder, fetchFolders, fetchInbox } from '../src/lib/api.js'
+import { ApiError, fetchFolder, fetchFolders, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
 import { useInboxStore } from '../src/stores/inbox.js'
 
 const mk = (id) => ({ id, rel_path: `images/_inbox/${id}.png`, ext: '.png', thumb_url: `/thumbs/${id}` })
@@ -18,6 +18,8 @@ beforeEach(() => {
   fetchInbox.mockReset()
   fetchFolder.mockReset()
   fetchFolders.mockReset()
+  fetchPlatforms.mockReset()
+  fetchPlatforms.mockResolvedValue([])
   fetchFolders.mockResolvedValue(NAV) // 导航数据：每次 load 都会顺带取一次
   inbox = useInboxStore()
 })
@@ -69,7 +71,7 @@ describe('loadMore', () => {
     fetchInbox.mockResolvedValueOnce(page([2, 3, 4], 4))
     await inbox.loadMore()
     expect(inbox.ids).toEqual([1, 2, 3, 4])
-    expect(fetchInbox).toHaveBeenLastCalledWith(2, 200)
+    expect(fetchInbox).toHaveBeenLastCalledWith(2, 200, 'all')
   })
 
   it('已经加载完就不再请求', async () => {
@@ -269,5 +271,89 @@ describe('视图切换（收件箱 / 文件夹）', () => {
     await inbox.loadMore()
     expect(fetchFolder).toHaveBeenLastCalledWith('a', 2, 200)
     expect(inbox.ids).toEqual([1, 2, 3])
+  })
+})
+
+describe('收件箱来源建议筛选', () => {
+  const inboxView = (filter) => ({ kind: 'inbox', filter })
+
+  it('带筛选请求收件箱：filter 参数传给接口，分页也沿用', async () => {
+    fetchInbox.mockResolvedValueOnce({ filter: 'hint', ...page([1, 2], 3) })
+    await inbox.setView(inboxView('hint'))
+    expect(fetchInbox).toHaveBeenCalledWith(0, 200, 'hint')
+    expect(inbox.hintFilter).toBe('hint')
+    expect(inbox.isInbox).toBe(true)
+    fetchInbox.mockResolvedValueOnce({ filter: 'hint', ...page([3], 3) })
+    await inbox.loadMore()
+    expect(fetchInbox).toHaveBeenLastCalledWith(2, 200, 'hint')
+    expect(inbox.ids).toEqual([1, 2, 3])
+  })
+
+  it('默认视图不带筛选时按 all 请求', async () => {
+    await loaded([1])
+    expect(fetchInbox).toHaveBeenCalledWith(0, 200, 'all')
+    expect(inbox.hintFilter).toBe('all')
+  })
+
+  it('切换筛选是一次视图变化：清空旧图、清掉选择，不残留上一个筛选的内容', async () => {
+    await loaded([1, 2, 3])
+    inbox.click(2)
+    let release
+    fetchInbox.mockReturnValueOnce(new Promise((r) => (release = r)))
+    const p = inbox.setView(inboxView('nohint'))
+    expect(inbox.items).toEqual([])
+    expect(inbox.selected.size).toBe(0)
+    release({ filter: 'nohint', ...page([9]) })
+    await p
+    expect(inbox.ids).toEqual([9])
+    expect(inbox.hintFilter).toBe('nohint')
+  })
+
+  it('在筛选之间快速切换：慢返回的旧结果不能覆盖新筛选', async () => {
+    let releaseHint
+    fetchInbox.mockReturnValueOnce(new Promise((r) => (releaseHint = r)))
+    fetchInbox.mockResolvedValueOnce({ filter: 'nohint', ...page([7]) })
+    const pa = inbox.setView(inboxView('hint'))
+    const pb = inbox.setView(inboxView('nohint'))
+    await pb
+    releaseHint({ filter: 'hint', ...page([1, 2]) })
+    await pa
+    expect(inbox.ids).toEqual([7])
+    expect(inbox.hintFilter).toBe('nohint')
+  })
+
+  it('同一筛选再次 setView 不重复请求；不同筛选会请求', async () => {
+    fetchInbox.mockResolvedValue({ filter: 'hint', ...page([1]) })
+    await inbox.setView(inboxView('hint'))
+    await inbox.setView(inboxView('hint'))
+    expect(fetchInbox).toHaveBeenCalledTimes(1)
+    await inbox.setView(inboxView('all'))
+    expect(fetchInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('文件夹视图里 hintFilter 恒为 all（筛选只属于收件箱）', async () => {
+    fetchFolder.mockResolvedValueOnce({ folder: 'x', ...page([1]) })
+    await inbox.setView({ kind: 'folder', path: 'x' })
+    expect(inbox.isInbox).toBe(false)
+    expect(inbox.hintFilter).toBe('all')
+    expect(fetchInbox).not.toHaveBeenCalled()
+  })
+
+  it('导航数据带来源建议张数；平台名只取一次', async () => {
+    fetchFolders.mockResolvedValue({ inbox: 10, inbox_hinted: 4, archived: 0, folders: [] })
+    fetchPlatforms.mockResolvedValue([{ id: 'lofter', name: '乐乎' }])
+    await loaded([1])
+    expect(inbox.nav.inbox_hinted).toBe(4)
+    expect(inbox.platformNames).toEqual({ lofter: '乐乎' })
+    await inbox.load()
+    expect(fetchPlatforms).toHaveBeenCalledTimes(1)
+  })
+
+  it('平台名取不到不影响看图', async () => {
+    fetchPlatforms.mockRejectedValue(new ApiError('boom', 500))
+    await loaded([1, 2])
+    expect(inbox.ids).toEqual([1, 2])
+    expect(inbox.error).toBe('')
+    expect(inbox.platformNames).toEqual({})
   })
 })

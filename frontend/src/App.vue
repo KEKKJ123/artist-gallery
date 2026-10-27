@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import FilterBar from './components/FilterBar.vue'
 import NavPanel from './components/NavPanel.vue'
 import PreviewOverlay from './components/PreviewOverlay.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
@@ -30,6 +31,8 @@ function go(view) {
   if (window.matchMedia('(max-width: 720px)').matches) prefs.navOpen = false
 }
 const goFolder = (path) => go({ kind: 'folder', path })
+// 切换筛选也是一次"视图变化"：进历史、地址栏带上 ?filter=…，后退键能回到上一个筛选
+const setFilter = (filter) => go({ kind: 'inbox', filter })
 
 function onKey(e) {
   // 焦点在文本框里时按键归它；滑块只拿走方向键（见 lib/keys.js）。
@@ -82,7 +85,12 @@ onBeforeUnmount(() => {
   history.stop()
 })
 
-const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这个文件夹里还没有图'))
+const emptyTitle = computed(() => {
+  if (!inbox.isInbox) return '这个文件夹里还没有图'
+  if (inbox.hintFilter === 'hint') return '收件箱里没有带来源建议的图'
+  if (inbox.hintFilter === 'nohint') return '收件箱里没有"没建议"的图了'
+  return '收件箱是空的'
+})
 </script>
 
 <template>
@@ -93,6 +101,9 @@ const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这�
       <span>{{ inbox.error }}</span>
       <button @click="inbox.load()">重试</button>
     </div>
+
+    <!-- 收件箱专属：按来源建议筛选。文件夹视图里没有"来源建议"这个概念，不显示 -->
+    <FilterBar v-if="inbox.isInbox" @change="setFilter" />
 
     <main
       class="main"
@@ -107,7 +118,11 @@ const emptyTitle = computed(() => (inbox.isInbox ? '收件箱是空的' : '这�
           <p>
             <strong>{{ emptyTitle }}</strong>
           </p>
-          <p v-if="inbox.isInbox">
+          <p v-if="inbox.isInbox && inbox.hintFilter !== 'all'">
+            试试
+            <button class="linkish" @click="setFilter('all')">查看全部</button>。
+          </p>
+          <p v-else-if="inbox.isInbox">
             用命令行导入图片：<code>artist-gallery import &lt;图库&gt; &lt;文件夹&gt;</code
             >，再点右上角的刷新。
           </p>

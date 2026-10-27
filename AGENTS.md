@@ -35,6 +35,11 @@
 9. **分层**：`core/` 不得 import `server/` 或任何 Web 框架；所有业务逻辑放 `core/`，`server/` 只做参数解析和调用。
 10. **确认与撤销**（ADR 0007）：碰到图库之外、无法撤回的操作（删除源文件、永久删除）必须用户显式确认；图库内可撤销的操作不弹确认，但必须写 op_log 并能撤销。新增"不弹确认"的操作前，对应的撤销必须已经实现并有测试；撤销没落地的操作按大范围档处理（清单确认）。撤销失败时保留现状并报错，不覆盖、不删文件；`delete_source` 等不可逆记录不进撤销栈。
 
+## 文件编码
+- 所有文本文件用 **UTF-8、不带 BOM、换行用 LF**（`.gitattributes` 已统一换行）。
+- **在 Windows PowerShell 5.1 里不要用 `Set-Content -Encoding utf8` / `Add-Content -Encoding utf8` / `Out-File` 写源码**：它们会悄悄在文件开头加 BOM。带 BOM 的 `.py` 在 Linux/Termux 上会直接 `SyntaxError: invalid non-printable character U+FEFF`，而 Windows 上完全看不出来。要写文件时用编辑工具，或 `[IO.File]::WriteAllText(path, text, (New-Object Text.UTF8Encoding($false)))`。
+- CI 有 `hygiene` 任务检查这一条。
+
 ## 开发环境
 - Python 3.12；红豆的 Windows 机器上默认 shell 是 **PowerShell 5.1**：不支持 `&&`，用 `;` 或分多条命令。
 - 安装（可编辑模式 + 开发依赖）：

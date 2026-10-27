@@ -25,6 +25,22 @@ jobs:
       - run: ruff check .
       - run: python -m pytest -q -rs
 
+  hygiene:
+    # 文件卫生：带 BOM 的 .py 在 Linux 上会直接 SyntaxError；CRLF 会让"构建产物一致性检查"和 diff 变得嘈杂。
+    # 这类问题在 Windows 上很难察觉（PowerShell 5.1 的 `Set-Content -Encoding utf8` 会悄悄加 BOM），所以由 CI 兜底。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 不允许提交带 BOM 的文本文件
+        run: |
+          bad=$(git ls-files '*.py' '*.js' '*.vue' '*.css' '*.html' '*.md' '*.json' '*.yml' '*.toml' '*.sql' '*.svg' \
+            | while read -r f; do [ -f "$f" ] && [ "$(head -c3 "$f" | xxd -p)" = "efbbbf" ] && echo "$f"; done)
+          if [ -n "$bad" ]; then
+            echo "::error::以下文件以 UTF-8 BOM 开头，请去掉（用 VS Code：右下角编码 → 通过编码保存 → UTF-8）："
+            echo "$bad"
+            exit 1
+          fi
+
   frontend:
     # 前端：跑单元测试，并检查"提交进仓库的构建产物"和源码是否一致。
     # 产物提交进仓库是为了让手机 Termux 不装 Node 也能用；代价是改了源码忘记重新构建就会过期，由这里兜底。

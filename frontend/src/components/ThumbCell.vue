@@ -1,7 +1,9 @@
 <script setup>
 import { Check, Film, Image, ImageOff } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { aspectRatio, extLabel, hintShort, isVideo } from '../lib/format.js'
+import { aspectRatio, extLabel, isVideo } from '../lib/format.js'
+import { hintBadge } from '../lib/platforms.js'
+import PlatformBadge from './PlatformBadge.vue'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -9,6 +11,8 @@ const props = defineProps({
   focused: Boolean,
   square: Boolean,
   multiMode: Boolean, // 触屏多选模式：始终显示勾选圈
+  platformNames: { type: Object, default: () => ({}) }, // 自定义平台的显示名
+  badgeSize: { type: Number, default: 22 },
 })
 const emit = defineEmits(['click', 'dblclick', 'longpress'])
 
@@ -16,7 +20,7 @@ const failed = ref(false) // 缩略图加载失败（文件丢了、损坏）
 const loaded = ref(false)
 
 const ratio = computed(() => (props.square ? 1 : aspectRatio(props.item)))
-const hint = computed(() => hintShort(props.item.source_hint))
+const badge = computed(() => hintBadge(props.item.source_hint, props.platformNames))
 const video = computed(() => isVideo(props.item.ext))
 const noThumb = computed(() => !props.item.thumb_url || failed.value)
 
@@ -80,8 +84,9 @@ function onClick(e) {
         <span v-if="item.missing" class="gone">文件丢失</span>
       </div>
 
-      <span v-if="hint" class="hint" :class="{ weak: item.source_hint && !item.source_hint.post_id }">
-        {{ hint }}
+      <!-- 来源建议：左下角站点标志（品牌色方块 + 首字母）。ID 不放在格子里，看右侧面板或大图预览 -->
+      <span v-if="badge" class="hint-logo" :title="badge.tooltip">
+        <PlatformBadge :platform="badge.platform" :uncertain="!badge.certain" :size="badgeSize" />
       </span>
       <span class="check" aria-hidden="true"><Check :size="14" /></span>
       <span v-if="!noThumb && (video || item.ext === '.gif')" class="badge">{{ extLabel(item.ext) }}</span>
@@ -140,25 +145,14 @@ img.loaded {
   color: var(--danger);
 }
 
-/* 来源建议：收件箱里常驻，因为这是整理时最关键的信息 */
-.hint {
+/* 来源建议：收件箱里常驻，因为这是整理时最关键的信息。
+   只占左下角一小块，不再用横跨整个格子的半透明长条（它在浅色图上几乎看不清，还盖住画面） */
+.hint-logo {
   position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 4px;
-  padding: 1px 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  border-radius: 4px;
-  background: var(--accent-soft);
-  color: var(--fg);
-  backdrop-filter: blur(6px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hint.weak {
-  background: var(--warn-soft);
+  left: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  line-height: 0;
 }
 .badge {
   position: absolute;

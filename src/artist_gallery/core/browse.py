@@ -17,7 +17,12 @@ import sqlite3
 from typing import Any
 
 from artist_gallery.core.importer import INBOX
-from artist_gallery.core.inbox import IMAGE_COLUMNS, MAX_LIMIT, image_to_dict
+from artist_gallery.core.inbox import (
+    IMAGE_COLUMNS,
+    MAX_LIMIT,
+    count_inbox_hinted,
+    image_to_dict,
+)
 
 IMAGES_DIR = "images"
 INBOX_DIR = INBOX.name  # "_inbox"
@@ -55,7 +60,8 @@ def list_folders(conn: sqlite3.Connection) -> dict[str, Any]:
 
     folders[i] = {path, name, depth, count, has_children}，count 含子文件夹。
     """
-    inbox = conn.execute("SELECT COUNT(*) FROM image WHERE work_id IS NULL").fetchone()[0]
+    inbox_total = conn.execute("SELECT COUNT(*) FROM image WHERE work_id IS NULL").fetchone()[0]
+    inbox_hinted = count_inbox_hinted(conn)
 
     lo, hi = _bounds("")
     counts: dict[str, int] = {}
@@ -85,7 +91,12 @@ def list_folders(conn: sqlite3.Connection) -> dict[str, Any]:
         }
         for p in ordered
     ]
-    return {"inbox": inbox, "archived": archived, "folders": folders}
+    return {
+        "inbox": inbox_total,
+        "inbox_hinted": inbox_hinted,
+        "archived": archived,
+        "folders": folders,
+    }
 
 
 def list_folder_images(

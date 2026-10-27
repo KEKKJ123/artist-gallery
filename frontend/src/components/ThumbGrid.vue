@@ -126,6 +126,8 @@ defineExpose({ cols, multiMode })
         :focused="inbox.focus === item.id"
         :square="prefs.square"
         :multi-mode="multiMode"
+        :platform-names="inbox.platformNames"
+        :badge-size="prefs.thumbSize < 140 ? 18 : 22"
         @click="onClick(item, $event)"
         @dblclick="onCellDblClick(item)"
         @longpress="onLongPress(item)"

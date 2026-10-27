@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   INBOX_VIEW,
   breadcrumbs,
+  cleanFilter,
   cleanPath,
   parentPath,
   parseView,
@@ -100,5 +101,45 @@ describe('breadcrumbs / parentPath', () => {
     expect(parentPath('a/b/c')).toBe('a/b')
     expect(parentPath('a')).toBe('')
     expect(parentPath('')).toBe('')
+  })
+})
+
+describe('收件箱筛选 ⇄ 网址', () => {
+  it('默认是 all，地址栏是根路径', () => {
+    expect(INBOX_VIEW).toEqual({ kind: 'inbox', filter: 'all' })
+    expect(parseView('')).toEqual({ kind: 'inbox', filter: 'all' })
+    expect(viewToUrl(INBOX_VIEW)).toBe('/')
+  })
+
+  it('hint / nohint 写进 ?filter=，且能读回来', () => {
+    expect(viewToUrl({ kind: 'inbox', filter: 'hint' })).toBe('/?filter=hint')
+    expect(viewToUrl({ kind: 'inbox', filter: 'nohint' })).toBe('/?filter=nohint')
+    expect(parseView('?filter=hint')).toEqual({ kind: 'inbox', filter: 'hint' })
+    expect(parseView('?filter=nohint')).toEqual({ kind: 'inbox', filter: 'nohint' })
+  })
+
+  it('不认识的筛选值（手改地址栏、旧链接）当作 all，不报错', () => {
+    expect(parseView('?filter=bogus')).toEqual({ kind: 'inbox', filter: 'all' })
+    expect(parseView('?filter=')).toEqual({ kind: 'inbox', filter: 'all' })
+    expect(cleanFilter('HINT')).toBe('all') // 大小写敏感，和后端一致
+    expect(viewToUrl({ kind: 'inbox', filter: 'bogus' })).toBe('/')
+  })
+
+  it('folder 优先于 filter（filter 只属于收件箱）', () => {
+    expect(parseView('?folder=pixiv&filter=hint')).toEqual({ kind: 'folder', path: 'pixiv' })
+  })
+
+  it('不同筛选算不同视图；缺省 filter 与 all 相同', () => {
+    expect(sameView({ kind: 'inbox', filter: 'all' }, { kind: 'inbox', filter: 'hint' })).toBe(false)
+    expect(sameView({ kind: 'inbox', filter: 'hint' }, { kind: 'inbox', filter: 'hint' })).toBe(true)
+    expect(sameView({ kind: 'inbox' }, { kind: 'inbox', filter: 'all' })).toBe(true)
+    expect(sameView({ kind: 'inbox', filter: 'hint' }, { kind: 'folder', path: '' })).toBe(false)
+  })
+
+  it('往返不变', () => {
+    for (const filter of ['all', 'hint', 'nohint']) {
+      const v = { kind: 'inbox', filter }
+      expect(parseView(viewToUrl(v).slice(1).replace(/^\?/, '?'))).toEqual(v)
+    }
   })
 })

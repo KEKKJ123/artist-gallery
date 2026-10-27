@@ -1,6 +1,6 @@
 # 模块边界与依赖方向
 
-本文是 main 已合入的**当前旧模型代码地图**，不把目标模块写成已实现功能。需求以 [design.md](design.md) v0.9、交互以 [frontend-style.md](frontend-style.md) 为准；新旧模块去留与替代入口见 [transition.md](transition.md)。暂停 PR 中的文件大小／标题功能不属于这张当前地图。
+本文是 main 已合入的**当前旧模型代码地图**，不把目标模块写成已实现功能。需求以 [design.md](design.md) v0.9.1、交互以 [frontend-style.md](frontend-style.md) 为准；新旧模块去留与替代入口见 [transition.md](transition.md)。暂停 PR 中的文件大小／标题功能不属于这张当前地图。
 
 收件箱仍由旧 `work_id` 判断、文件夹仍按路径查询，是待替换实现，不是新业务约定；后续以明确整理状态与图片关系为准。
 

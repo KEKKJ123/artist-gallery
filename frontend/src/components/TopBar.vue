@@ -81,7 +81,7 @@ const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.pat
     <button class="icon" title="刷新" aria-label="刷新" :disabled="inbox.loading" @click="inbox.load()">
       <RefreshCw :size="16" />
     </button>
-    <button class="icon" title="快捷键（?）" aria-label="快捷键" @click="$emit('help')">
+    <button class="icon" title="快捷键帮助（/ 或 Shift+/，再按一次关闭）" aria-label="快捷键" @click="$emit('help')">
       <CircleHelp :size="16" />
     </button>
     <button

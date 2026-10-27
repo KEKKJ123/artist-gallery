@@ -21,6 +21,8 @@ import {
 import { zoomKeyAction } from '../lib/keys.js'
 import { useInboxStore } from '../stores/inbox.js'
 
+// 帮助盖在大图预览上时，预览保持原状，但键盘必须交给最上层的帮助。
+const props = defineProps({ suspended: Boolean })
 const inbox = useInboxStore()
 const item = computed(() => inbox.previewItem)
 const video = computed(() => item.value && isVideo(item.value.ext))
@@ -201,7 +203,7 @@ const zoomOut = () => canZoom.value && setView(step(view, -1, img, box))
 
 // 预览打开时，键盘由这里接管
 function onKey(e) {
-  if (!item.value) return
+  if (!item.value || props.suspended) return
   if (e.key === 'Escape') {
     // 放大状态下，Esc 先回到适应窗口；再按一次才关闭
     if (zoomed.value) resetView()

@@ -3,13 +3,15 @@
 // 三个按钮各带张数，让人一眼知道"还有多少没处理"。
 import { computed } from 'vue'
 import { useInboxStore } from '../stores/inbox.js'
+import { useLibraryStore } from '../stores/library.js'
 
 const emit = defineEmits(['change'])
 const inbox = useInboxStore()
+const library = useLibraryStore()
 
 const options = computed(() => {
-  const all = inbox.nav.inbox
-  const hinted = inbox.nav.inbox_hinted
+  const all = library.nav.inbox
+  const hinted = library.nav.inbox_hinted
   return [
     { id: 'all', label: '全部', count: all },
     { id: 'hint', label: '有来源建议', count: hinted },

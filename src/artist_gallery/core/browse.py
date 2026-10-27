@@ -16,16 +16,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from artist_gallery.core.importer import INBOX
-from artist_gallery.core.inbox import (
-    IMAGE_COLUMNS,
-    MAX_LIMIT,
-    count_inbox_hinted,
-    image_to_dict,
-)
-
-IMAGES_DIR = "images"
-INBOX_DIR = INBOX.name  # "_inbox"
+from artist_gallery.core.images import IMAGE_COLUMNS, image_to_dict, normalize_pagination
+from artist_gallery.core.inbox import count_inbox_hinted
+from artist_gallery.core.layout import IMAGES_DIR, INBOX_DIR
 
 
 class BadFolderPath(ValueError):
@@ -107,8 +100,7 @@ def list_folder_images(
     folder 须是 normalize_folder 的结果。不存在的文件夹返回空列表，不报错
     （前端的书签或旧页面可能指向已被移走的文件夹）。
     """
-    offset = max(0, offset)
-    limit = min(max(1, limit), MAX_LIMIT)
+    offset, limit = normalize_pagination(offset, limit)
     lo, hi = _bounds(folder)
     where, params = "rel_path >= ? AND rel_path < ?", [lo, hi]
     if folder == "":

@@ -7,6 +7,7 @@ vi.mock('../src/lib/api.js', async () => {
 })
 import { ApiError, fetchFolder, fetchFolders, fetchInbox, fetchPlatforms } from '../src/lib/api.js'
 import { useInboxStore } from '../src/stores/inbox.js'
+import { useLibraryStore } from '../src/stores/library.js'
 
 const mk = (id) => ({ id, rel_path: `images/_inbox/${id}.png`, ext: '.png', thumb_url: `/thumbs/${id}` })
 const page = (ids, total = ids.length) => ({ total, offset: 0, limit: 200, items: ids.map(mk) })
@@ -256,12 +257,12 @@ describe('视图切换（收件箱 / 文件夹）', () => {
   it('每次加载都会顺带刷新左侧导航数据；导航失败不影响看图', async () => {
     fetchFolders.mockResolvedValueOnce({ inbox: 3, archived: 7, folders: [{ path: 'x', name: 'x', depth: 0, count: 7, has_children: false }] })
     await loaded([1])
-    expect(inbox.nav.archived).toBe(7)
+    expect(useLibraryStore().nav.archived).toBe(7)
     fetchFolders.mockRejectedValueOnce(new ApiError('boom', 500))
     await loaded([1, 2])
     expect(inbox.ids).toEqual([1, 2])
     expect(inbox.error).toBe('')
-    expect(inbox.nav.archived).toBe(7) // 失败时保留旧导航，不清空
+    expect(useLibraryStore().nav.archived).toBe(7) // 失败时保留旧导航，不清空
   })
 
   it('文件夹视图里的分页接着取下一页，用同一个路径', async () => {
@@ -343,8 +344,8 @@ describe('收件箱来源建议筛选', () => {
     fetchFolders.mockResolvedValue({ inbox: 10, inbox_hinted: 4, archived: 0, folders: [] })
     fetchPlatforms.mockResolvedValue([{ id: 'lofter', name: '乐乎' }])
     await loaded([1])
-    expect(inbox.nav.inbox_hinted).toBe(4)
-    expect(inbox.platformNames).toEqual({ lofter: '乐乎' })
+    expect(useLibraryStore().nav.inbox_hinted).toBe(4)
+    expect(useLibraryStore().platformNames).toEqual({ lofter: '乐乎' })
     await inbox.load()
     expect(fetchPlatforms).toHaveBeenCalledTimes(1)
   })
@@ -354,6 +355,6 @@ describe('收件箱来源建议筛选', () => {
     await loaded([1, 2])
     expect(inbox.ids).toEqual([1, 2])
     expect(inbox.error).toBe('')
-    expect(inbox.platformNames).toEqual({})
+    expect(useLibraryStore().platformNames).toEqual({})
   })
 })

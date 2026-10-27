@@ -125,6 +125,17 @@ export function step(view, dir, img, box, ratio = 1.25) {
   return zoomAt(view, dir > 0 ? view.scale * ratio : view.scale / ratio, 0, 0, img, box)
 }
 
+/** 方向键平移，每次走窗口的 15%，边缘仍由 clampPan 限制。 */
+export function panByKey(view, key, img, box) {
+  const direction = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[key]
+  if (!direction) return { ...view }
+  return clampPan({
+    scale: view.scale,
+    x: view.x + direction[0] * box.w * 0.15,
+    y: view.y + direction[1] * box.h * 0.15,
+  }, img, box)
+}
+
 /** 当前缩放对应的"屏幕像素比"（用于显示 100% / 250% 之类）。 */
 export function percent(view, img, box) {
   const fit = fitSize(img, box)

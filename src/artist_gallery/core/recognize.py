@@ -24,6 +24,28 @@ from artist_gallery.core.platforms import BUILTIN_BY_ID, PIXIV_ID, X_ID, Rule
 
 log = logging.getLogger(__name__)
 _A = re.ASCII
+# pn 还要经过 JSON 到浏览器：同时满足 SQLite 整数与 JavaScript 精确整数范围。
+MAX_PAGE = (1 << 53) - 1
+
+
+class BadRecognition(ValueError):
+    """匹配到的来源字段不合法，只应使当前导入条目失败。"""
+
+
+def _parse_page(value: str | None, offset: int = 0) -> int | None:
+    if value is None or value == "":
+        return None
+    if not re.fullmatch(r"[0-9]+", value):
+        raise BadRecognition("平台页码必须是非负十进制整数")
+    digits = value.lstrip("0") or "0"
+    # 先比较字符串，避免 Python 对超长数字的转换限制和巨型整数构造。
+    maximum = str(MAX_PAGE + max(0, -offset))
+    if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+        raise BadRecognition("平台页码超出支持范围")
+    page = int(digits) + offset
+    if not 0 <= page <= MAX_PAGE:
+        raise BadRecognition("平台页码超出支持范围")
+    return page
 
 
 class Confidence(StrEnum):
@@ -103,9 +125,7 @@ def load_rules(conn: sqlite3.Connection) -> RuleSet:
 
 def _from_match(rule: Rule, m: re.Match[str], confidence: Confidence) -> Recognition:
     groups = m.groupdict()
-    page = int(groups["page"]) + rule.page_offset if groups.get("page") else None
-    if page is not None and page < 0:
-        page = None
+    page = _parse_page(groups.get("page"), rule.page_offset)
     definition = (
         f"v2:{rule.platform}:{rule.pattern.pattern}:{rule.pattern.flags}:"
         f"{rule.page_offset}:{rule.guarded}"
@@ -122,7 +142,9 @@ def recognize(stem: str, rules: RuleSet) -> Recognition:
     """识别文件名（不含扩展名）对应的来源。"""
     m = OWN_FORMAT.match(stem)
     if m and m["platform"] in rules.platforms:
-        return Recognition(Confidence.HIGH, m["platform"], m["post_id"], int(m["page"]), "own-v2")
+        return Recognition(
+            Confidence.HIGH, m["platform"], m["post_id"], _parse_page(m["page"]), "own-v2"
+        )
 
     for rule in rules.high:
         m = rule.pattern.search(stem)

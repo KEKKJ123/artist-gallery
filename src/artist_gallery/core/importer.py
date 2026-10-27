@@ -26,7 +26,13 @@ from artist_gallery.core import db
 from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.layout import INBOX
 from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
-from artist_gallery.core.recognize import Confidence, Recognition, RuleSet, load_rules, recognize
+from artist_gallery.core.recognize import (
+    Confidence,
+    Recognition,
+    RuleSet,
+    load_rules,
+    recognize,
+)
 from artist_gallery.core.sources import record_filename
 
 
@@ -185,7 +191,10 @@ class _Importer:
         except OSError as e:
             return ImportItem(src, Action.ERROR, message=f"读取失败：{e}")
 
-        rec = recognize(src.stem, self.rules)
+        try:
+            rec = recognize(src.stem, self.rules)
+        except (ValueError, OverflowError) as e:
+            return ImportItem(src, Action.ERROR, message=f"文件名识别失败：{e}")
         dup = self.conn.execute(
             "SELECT id, image_id, rel_path FROM image_file WHERE sha256=?", (sha,)
         ).fetchone()

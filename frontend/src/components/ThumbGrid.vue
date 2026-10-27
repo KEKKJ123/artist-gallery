@@ -1,10 +1,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useInboxStore } from '../stores/inbox.js'
+import { useLibraryStore } from '../stores/library.js'
 import { usePrefsStore } from '../stores/prefs.js'
 import ThumbCell from './ThumbCell.vue'
 
 const inbox = useInboxStore()
+const library = useLibraryStore()
 const prefs = usePrefsStore()
 
 const root = ref(null)
@@ -126,7 +128,7 @@ defineExpose({ cols, multiMode })
         :focused="inbox.focus === item.id"
         :square="prefs.square"
         :multi-mode="multiMode"
-        :platform-names="inbox.platformNames"
+        :platform-names="library.platformNames"
         :badge-size="prefs.thumbSize < 140 ? 18 : 22"
         @click="onClick(item, $event)"
         @dblclick="onCellDblClick(item)"

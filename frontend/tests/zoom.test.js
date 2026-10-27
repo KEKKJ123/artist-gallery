@@ -8,6 +8,7 @@ import {
   distance,
   fitSize,
   midpoint,
+  panByKey,
   percent,
   pinchFactor,
   pinchTo,
@@ -20,6 +21,21 @@ import {
 const box = { w: 1000, h: 600 }
 const big = { w: 4000, h: 3000 } // 比窗口大：适应窗口时会缩小
 const small = { w: 200, h: 100 } // 比窗口小：适应窗口时保持原大小
+
+describe('panByKey', () => {
+  it.each([
+    ['ArrowLeft', 150, 0], ['ArrowRight', -150, 0],
+    ['ArrowUp', 0, 90], ['ArrowDown', 0, -90],
+  ])('%s 按窗口的 15% 平移', (key, x, y) => {
+    expect(panByKey({ scale: 2, x: 0, y: 0 }, key, big, box)).toEqual({ scale: 2, x, y })
+  })
+
+  it('边缘夹取；未知键不改动状态', () => {
+    const view = { scale: 2, x: 290, y: 0 }
+    expect(panByKey(view, 'ArrowLeft', big, box).x).toBe(300)
+    expect(panByKey(view, 'a', big, box)).toEqual(view)
+  })
+})
 
 describe('fitSize / actualScale', () => {
   it('大图按窗口缩小，保持比例', () => {

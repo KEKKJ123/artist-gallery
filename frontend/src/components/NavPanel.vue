@@ -3,9 +3,11 @@ import { ChevronDown, ChevronRight, Folder, FolderOpen, Images, Inbox } from '@l
 import { computed, ref } from 'vue'
 import { cleanPath, sameView } from '../lib/location.js'
 import { useInboxStore } from '../stores/inbox.js'
+import { useLibraryStore } from '../stores/library.js'
 
 const emit = defineEmits(['navigate'])
 const inbox = useInboxStore()
+const library = useLibraryStore()
 
 // 展开状态：记住用户手动展开/收起的文件夹。当前所在文件夹的所有祖先自动视为展开。
 const toggled = ref(new Set())
@@ -29,8 +31,8 @@ function toggle(f) {
 
 // 只显示"所有祖先都展开了"的行
 const visible = computed(() => {
-  const open = new Map(inbox.nav.folders.map((f) => [f.path, isOpen(f)]))
-  return inbox.nav.folders.filter((f) => {
+  const open = new Map(library.nav.folders.map((f) => [f.path, isOpen(f)]))
+  return library.nav.folders.filter((f) => {
     const segs = f.path.split('/')
     for (let i = 1; i < segs.length; i++) if (!open.get(segs.slice(0, i).join('/'))) return false
     return true
@@ -49,14 +51,14 @@ const here = (path) => sameView(inbox.view, { kind: 'folder', path })
     <button class="row top" :class="{ active: isCurrentInbox }" @click="go({ kind: 'inbox', filter: 'all' })">
       <Inbox :size="16" />
       <span class="label">收件箱</span>
-      <span class="count" :class="{ attention: inbox.nav.inbox > 0 }">{{ inbox.nav.inbox }}</span>
+      <span class="count" :class="{ attention: library.nav.inbox > 0 }">{{ library.nav.inbox }}</span>
     </button>
 
     <div class="section-title">已归档</div>
     <button class="row top" :class="{ active: isCurrentAll }" @click="go({ kind: 'folder', path: '' })">
       <Images :size="16" />
       <span class="label">全部</span>
-      <span class="count">{{ inbox.nav.archived }}</span>
+      <span class="count">{{ library.nav.archived }}</span>
     </button>
 
     <div v-for="f in visible" :key="f.path" class="folder" :style="{ '--depth': f.depth }">
@@ -77,7 +79,7 @@ const here = (path) => sameView(inbox.view, { kind: 'folder', path })
       </button>
     </div>
 
-    <p v-if="!inbox.nav.folders.length" class="hint">
+    <p v-if="!library.nav.folders.length" class="hint">
       还没有归档的图。整理收件箱里的图之后，这里会出现按来源（pixiv、x……）分好的文件夹。
     </p>
   </nav>

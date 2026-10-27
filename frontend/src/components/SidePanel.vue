@@ -3,12 +3,14 @@ import { computed } from 'vue'
 import { hintLabel } from '../lib/format.js'
 import { hintBadge } from '../lib/platforms.js'
 import { useInboxStore } from '../stores/inbox.js'
+import { useLibraryStore } from '../stores/library.js'
 import PlatformBadge from './PlatformBadge.vue'
 
 const inbox = useInboxStore()
+const library = useLibraryStore()
 const n = computed(() => inbox.selected.size)
 const one = computed(() => (n.value === 1 ? inbox.selectedItems[0] : null))
-const badge = computed(() => (one.value ? hintBadge(one.value.source_hint, inbox.platformNames) : null))
+const badge = computed(() => (one.value ? hintBadge(one.value.source_hint, library.platformNames) : null))
 
 // 选中的图里有多少带来源建议
 const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint).length)

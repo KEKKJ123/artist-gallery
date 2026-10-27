@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import FilterBar from './components/FilterBar.vue'
 import NavPanel from './components/NavPanel.vue'
 import PreviewOverlay from './components/PreviewOverlay.vue'
@@ -7,8 +7,8 @@ import ShortcutHelp from './components/ShortcutHelp.vue'
 import SidePanel from './components/SidePanel.vue'
 import ThumbGrid from './components/ThumbGrid.vue'
 import TopBar from './components/TopBar.vue'
-import { readInitialView, syncHistory } from './lib/history.js'
-import { isHelpKey, keyBelongsToControl } from './lib/keys.js'
+import { useGalleryKeys } from './composables/use-gallery-keys.js'
+import { useGalleryNavigation } from './composables/use-gallery-navigation.js'
 import { useInboxStore } from './stores/inbox.js'
 import { usePrefsStore } from './stores/prefs.js'
 
@@ -17,74 +17,21 @@ const prefs = usePrefsStore()
 const grid = ref(null)
 const helpOpen = ref(false)
 
-// ---- 视图 ⇄ 地址栏 ----
-// 用户点导航/面包屑 → go()：切换视图并往历史里记一条；点浏览器后退/前进 → 只切换视图。
-const history = syncHistory(
-  () => inbox.view,
-  (view) => inbox.setView(view),
-)
-
-function go(view) {
-  history.push(view)
-  inbox.setView(view)
-  // 手机上导航是盖在图上的抽屉：选完就收起，露出图
-  if (window.matchMedia('(max-width: 720px)').matches) prefs.navOpen = false
-}
-const goFolder = (path) => go({ kind: 'folder', path })
-// 切换筛选也是一次"视图变化"：进历史、地址栏带上 ?filter=…，后退键能回到上一个筛选
-const setFilter = (filter) => go({ kind: 'inbox', filter })
-
-function onKey(e) {
-  // 焦点在文本框里时按键归它；滑块只拿走方向键（见 lib/keys.js）。
-  // 以前把 INPUT 一律拦住，结果拖过一次"缩略图大小"滑块后，? 空格 Esc 等快捷键全部失效。
-  if (keyBelongsToControl(e.target, e.key) || e.altKey) return
-  // / 和 Shift+/ 都是帮助开关键。长按只处理第一次，不随着自动重复不断闪开闪关。
-  if (isHelpKey(e)) {
-    e.preventDefault()
-    if (!e.repeat) helpOpen.value = !helpOpen.value
-    return
-  }
-  // 帮助框打开时，背后的网格不响应按键（Esc 由帮助框自己处理）
-  if (helpOpen.value) return
-  // 预览和帮助各自在捕获阶段接管了按键；走到这里说明它们没开
-  const mod = e.ctrlKey || e.metaKey
-
-  if (mod && e.key.toLowerCase() === 'a') {
-    e.preventDefault()
-    inbox.selectAll()
-  } else if (e.key === 'Escape') {
-    // 手机上导航抽屉盖在图上：先关它
-    if (drawerOpen.value) prefs.navOpen = false
-    else inbox.clearSelection()
-  } else if (e.key.startsWith('Arrow') && !mod) {
-    e.preventDefault()
-    inbox.moveFocus(e.key, grid.value?.cols ?? 1, { shift: e.shiftKey })
-  } else if (e.key === ' ' && !mod) {
-    e.preventDefault() // 空格默认会滚动页面
-    inbox.openPreview()
-  }
-}
-
-// 窄屏下导航以抽屉形式覆盖在内容上
-const narrow = ref(false)
-let mq
-const onMq = () => (narrow.value = mq.matches)
-const drawerOpen = computed(() => narrow.value && prefs.navOpen)
-
-onMounted(async () => {
-  mq = window.matchMedia('(max-width: 720px)')
-  onMq()
-  mq.addEventListener('change', onMq)
-  window.addEventListener('keydown', onKey)
-
-  const first = readInitialView()
-  await inbox.setView(first, { force: true })
-  history.align() // 地址栏里写得不规整时（如 //、末尾 /）换成干净写法，不新增历史
+const { narrow, drawerOpen, go, goFolder, setFilter } = useGalleryNavigation({
+  getView: () => inbox.view,
+  setView: inbox.setView,
+  navOpen: () => prefs.navOpen,
+  closeNav: () => (prefs.navOpen = false),
 })
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey)
-  mq?.removeEventListener('change', onMq)
-  history.stop()
+useGalleryKeys({
+  helpOpen,
+  drawerOpen: () => drawerOpen.value,
+  closeNav: () => (prefs.navOpen = false),
+  getCols: () => grid.value?.cols ?? 1,
+  selectAll: inbox.selectAll,
+  clearSelection: inbox.clearSelection,
+  moveFocus: inbox.moveFocus,
+  openPreview: inbox.openPreview,
 })
 
 const emptyTitle = computed(() => {

@@ -61,3 +61,12 @@ git config user.name  "<你的 GitHub 用户名>"
 git config user.email "<数字ID>+<用户名>@users.noreply.github.com"
 ```
 数字 ID 在 `https://api.github.com/users/<用户名>` 的 `id` 字段。
+
+## 对外贡献者
+
+如果你是第一次为本仓库贡献：
+
+1. Fork 仓库，在自己的 fork 里开分支，提 PR 回 `main`。
+2. 确认 CI 通过（Windows / Ubuntu × Python 3.12 / 3.14 四种组合跑 ruff + pytest）。
+3. PR 描述写清楚改了什么、为什么改。大改动（数据库迁移、架构调整）建议先开 Issue 讨论。
+4. 提交的代码默认按 GPL-2.0-or-later 授权，与本仓库许可证一致。

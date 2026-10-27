@@ -3,6 +3,14 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [Unreleased]
+### 许可证与公开准备
+- 新增 `LICENSE`：GPL-2.0-or-later（GNU 官方原文）。选择理由：与计划在 M3 调用的 gallery-dl（GPL-2.0-only）兼容，且保留升级到 GPL-3.0 的余地。
+- `pyproject.toml` 声明 `license = "GPL-2.0-or-later"`；构建依赖 setuptools 提升到 ≥77（SPDX 写法的最低版本）。
+- README 改为面向外部读者：功能现状、快速开始、技术栈、许可证、贡献入口。
+- CONTRIBUTING 新增"对外贡献者"一节（Fork 流程、贡献默认按 GPL-2.0-or-later 授权）。
+- 公开时机：M1 全部完成后（有可用界面再公开）。
+- 修复：`pip install`（非可编辑模式）打出的包里漏了 `server/static/`，导致 `serve` 首页返回 500。M1a 只在 `pip install -e` 下测过所以没发现；现已声明 package-data，并用"打 wheel → 干净 venv 安装 → 启动 serve"验证。
+
 ### M1a：本地服务与缩略图
 - 新增 `artist-gallery serve <图库> [--host] [--port]`：启动本地网页服务，默认只监听 127.0.0.1:8765。
 - 新增 `server/app.py`（Starlette）：`GET /api/inbox`（分页）、`GET /api/platforms`、`GET /thumbs/{sha256}`、`GET /images/{路径}`；未知 `/api/*` 返回 404 JSON。

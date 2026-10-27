@@ -6,11 +6,13 @@
 //     但 e.code 仍然是物理按键的名字（"Slash"）。
 //   所以快捷键要同时看 e.key 和 e.code：e.key 管"字符对了"，e.code 管"物理键对了"。
 
-/** 是不是"打开帮助"：? / 全角 ？ / 物理上的 Shift+/（不管输入法吞没吞掉字符）。 */
+/** 帮助开关键：/ 单键或 Shift+/；兼容全角标点和被输入法接管的物理 Slash 键。
+ * 是否正在文本框里输入，由调用方用 keyBelongsToControl 判断，不能抢走输入框中的斜杠。
+ * 长按产生的 repeat 事件仍属于帮助键，但调用方必须吞掉它而不反复开关。
+ */
 export function isHelpKey(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return false
-  if (e.key === '?' || e.key === '？') return true
-  return e.code === 'Slash' && e.shiftKey === true
+  return ['/', '?', '／', '？'].includes(e.key) || e.code === 'Slash'
 }
 
 /**

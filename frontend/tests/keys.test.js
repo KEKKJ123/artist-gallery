@@ -4,7 +4,7 @@ import { isHelpKey, keyBelongsToControl, zoomKeyAction } from '../src/lib/keys.j
 const ev = (o) => ({ key: '', code: '', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...o })
 const el = (tagName, extra = {}) => ({ tagName, isContentEditable: false, ...extra })
 
-describe('isHelpKey：? 在各种输入状态下都要能认出来', () => {
+describe('isHelpKey：/ 和 ? 在各种输入状态下都要能认出来', () => {
   it('美式键盘 Shift+/ → ?', () => {
     expect(isHelpKey(ev({ key: '?', code: 'Slash', shiftKey: true }))).toBe(true)
   })
@@ -21,9 +21,10 @@ describe('isHelpKey：? 在各种输入状态下都要能认出来', () => {
     expect(isHelpKey(ev({ key: '?', code: 'Minus', shiftKey: true }))).toBe(true)
   })
 
-  it('不带 Shift 的 / 不算（那是搜索之类将来的用途）', () => {
-    expect(isHelpKey(ev({ key: '/', code: 'Slash' }))).toBe(false)
-    expect(isHelpKey(ev({ key: 'Process', code: 'Slash' }))).toBe(false)
+  it('不带 Shift 的 / 单键也打开帮助，输入法吞键时仍认物理键', () => {
+    expect(isHelpKey(ev({ key: '/', code: 'Slash' }))).toBe(true)
+    expect(isHelpKey(ev({ key: 'Process', code: 'Slash' }))).toBe(true)
+    expect(isHelpKey(ev({ key: '／', code: 'Slash' }))).toBe(true)
   })
 
   it('带 Ctrl / Alt / Meta 的组合不算，避免抢浏览器和系统的快捷键', () => {

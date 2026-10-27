@@ -26,7 +26,7 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hint)
 
     <section v-if="n === 0" class="empty">
       <p>点击图片选中，<kbd>Ctrl</kbd> 点击增减，<kbd>Shift</kbd> 点击选一段。</p>
-      <p>按 <kbd>?</kbd> 查看全部快捷键。</p>
+      <p>按 <kbd>/</kbd> 查看全部快捷键，再按一次关闭（<kbd>Shift+/</kbd> 也可以）。</p>
     </section>
 
     <section v-else-if="one" class="detail">

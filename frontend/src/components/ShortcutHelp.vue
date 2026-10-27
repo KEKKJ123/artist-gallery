@@ -1,6 +1,7 @@
 <script setup>
 import { X } from '@lucide/vue'
 import { onBeforeUnmount, onMounted } from 'vue'
+import { isHelpKey, keyBelongsToControl } from '../lib/keys.js'
 
 const props = defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
@@ -28,7 +29,7 @@ const groups = [
       ['空格', '打开大图预览；预览中再按空格关闭', true],
       ['双击', '打开大图（电脑）；多选期间不会触发', true, 'label'],
       ['Ctrl + 滚轮', '调整缩略图大小', true],
-      ['?', '显示本帮助', true],
+      ['/ 或 Shift + /', '打开 / 关闭本帮助；再按一次即可收起，Esc 也可关闭', true],
     ],
   },
   {
@@ -67,10 +68,13 @@ function onKey(e) {
   // 监听器在挂载时就注册了，所以必须自己判断"帮助框是否打开"。
   // 没打开时一定要放行：否则 Esc 会在这里被吞掉，网格永远收不到"取消选择"。
   if (!props.open) return
-  if (e.key === 'Escape') {
+  const helpKey = isHelpKey(e) && !keyBelongsToControl(e.target, e.key)
+  if (e.key === 'Escape' || helpKey) {
     e.preventDefault()
-    e.stopPropagation()
-    emit('close')
+    // 关闭后不能让同一个事件继续跑到 App 又把帮助打开，或让 Esc 顺带取消网格选择。
+    // 同一个 window 上有多个监听器，stopPropagation 不够，要阻止后续监听器。
+    e.stopImmediatePropagation()
+    if (!e.repeat) emit('close')
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey, true))

@@ -17,6 +17,7 @@
 | `tests/` | pytest 测试 | 可改；新功能要带测试 |
 | `frontend/` | Vue 前端（M1 起才有） | 可改 |
 | `docs/design.md` | 设计文档，唯一的需求来源 | 改需求前先和红豆确认 |
+| `docs/frontend-style.md` | 前端风格与交互约定 | 做 `frontend/` 前先读；改风格先和红豆确认 |
 | `docs/decisions/` | 设计决策记录（ADR） | 只追加，不改历史条目 |
 | `CHANGELOG.md` | 变更记录 | 每个功能性 commit 都要更新 |
 | `AGENTS.md` | 本文件 | 改之前先说明理由 |
@@ -31,6 +32,7 @@
 7. **路径要能跨平台**：文件名重名判断一律不区分大小写；新生成的文件名不得含 Windows 非法字符、不超过 255 字节（见 `importer._safe_stem`）。
 8. **Android 兼容（APK + Termux）**：新增**运行时**依赖必须是纯 Python，或在 Chaquopy 包仓库（https://chaquo.com/pypi-13.1/）中有现成包。不满足的依赖不准加，先和红豆讨论。因此 Web 层用 Starlette，**不用 FastAPI / pydantic v2**（见 ADR 0003）。开发依赖（pytest、ruff）不受此限。
 9. **分层**：`core/` 不得 import `server/` 或任何 Web 框架；所有业务逻辑放 `core/`，`server/` 只做参数解析和调用。
+10. **确认与撤销**（ADR 0007）：碰到图库之外、无法撤回的操作（删除源文件、永久删除）必须用户显式确认；图库内可撤销的操作不弹确认，但必须写 op_log 并能撤销。新增"不弹确认"的操作前，对应的撤销必须已经实现并有测试；撤销没落地的操作按大范围档处理（清单确认）。撤销失败时保留现状并报错，不覆盖、不删文件；`delete_source` 等不可逆记录不进撤销栈。
 
 ## 开发环境
 - Python 3.12；红豆的 Windows 机器上默认 shell 是 **PowerShell 5.1**：不支持 `&&`，用 `;` 或分多条命令。

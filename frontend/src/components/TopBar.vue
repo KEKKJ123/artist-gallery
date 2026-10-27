@@ -45,9 +45,12 @@ const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.pat
       <Folder :size="18" class="ico" />
       <Breadcrumb :path="folderPath" @navigate="(p) => $emit('navigate-folder', p)" />
     </div>
-    <span class="count">
+    <span class="count" :title="`共 ${inbox.total} 张`">
       <template v-if="inbox.loading && !inbox.items.length">加载中…</template>
-      <template v-else>共 {{ inbox.total }} 张</template>
+      <template v-else>
+        <span class="long">共 {{ inbox.total }} 张</span>
+        <span class="short">{{ inbox.total }}</span>
+      </template>
     </span>
 
     <div class="spacer" />
@@ -110,9 +113,14 @@ const folderPath = computed(() => (inbox.view.kind === 'folder' ? inbox.view.pat
   white-space: nowrap;
 }
 .brand.folder {
+  /* 文件夹名可能很长：允许收缩并省略，绝不能把顶栏撑出屏幕 */
   min-width: 0;
   flex: 0 1 auto;
+  overflow: hidden;
   font-weight: 400;
+}
+.count .short {
+  display: none;
 }
 .brand .ico {
   flex: none;
@@ -155,9 +163,24 @@ button:disabled {
   .top {
     gap: 4px;
     padding-inline: 8px;
+    /* 兜底：无论里面放什么，顶栏自己不能比屏幕宽。宽了会把整个页面撑宽，
+       手机浏览器随后会缩放或出现横向滚动，触摸坐标和页面坐标也会错位 */
+    min-width: 0;
+    overflow: hidden;
   }
   .size {
     display: none;
+  }
+  /* "共 N 张"在手机上缩成一个数字（完整文字放在 title 里），腾出约 35px */
+  .count .long {
+    display: none;
+  }
+  .count .short {
+    display: inline;
+  }
+  .brand {
+    flex: 0 1 auto;
+    min-width: 0;
   }
   /* 面包屑可能很长：手机上只显示最后一级，其余可以点导航栏里的文件夹到达 */
   .brand.folder :deep(li:not(:last-child)) {

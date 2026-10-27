@@ -48,12 +48,30 @@ watch(
 )
 
 function onClick(item, e) {
-  if (multiMode.value) inbox.tapToggle(item.id)
-  else inbox.click(item.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
+  if (multiMode.value) {
+    lastMultiAt = performance.now()
+    inbox.tapToggle(item.id)
+  } else {
+    inbox.click(item.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
+  }
 }
 function onLongPress(item) {
+  lastMultiAt = performance.now()
   multiMode.value = true
   if (!inbox.selected.has(item.id)) inbox.tapToggle(item.id)
+}
+
+// 双击 → 打开大图。但在"多选"期间，连续快速的点击是在勾选，不是想打开大图。
+// 浏览器会把"快速点两下同一张"合成一个 dblclick，所以要在这里拦住。
+//
+// 只判断"现在是不是多选模式"不够：多选里点掉最后一张，选择变空 → 自动退出多选模式 →
+// 紧接着的第二下点击落在"非多选"状态，随后合成的 dblclick 就会误开大图。
+// 所以改为记录"最近一次多选操作的时间"：这之后的一小段时间内，dblclick 一律不算。
+const MULTI_GRACE_MS = 700
+let lastMultiAt = -Infinity
+function onCellDblClick(item) {
+  if (multiMode.value || performance.now() - lastMultiAt < MULTI_GRACE_MS) return
+  inbox.openPreview(item.id)
 }
 
 // Ctrl+滚轮调缩略图大小（浏览器默认是整页缩放，这里接管）
@@ -109,7 +127,7 @@ defineExpose({ cols, multiMode })
         :square="prefs.square"
         :multi-mode="multiMode"
         @click="onClick(item, $event)"
-        @dblclick="inbox.openPreview(item.id)"
+        @dblclick="onCellDblClick(item)"
         @longpress="onLongPress(item)"
       />
     </div>

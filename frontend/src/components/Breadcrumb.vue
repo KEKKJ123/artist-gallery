@@ -55,7 +55,7 @@ li {
   background: transparent;
   border-radius: var(--radius);
   color: var(--fg-dim);
-  max-width: 14em;
+  max-width: min(14em, 40vw); /* 手机上按屏幕宽度限制，长文件夹名省略号 */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

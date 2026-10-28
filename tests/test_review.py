@@ -161,6 +161,20 @@ def test_draft_separate_persistent_cas_and_clear(lib):
     assert before == revisions(conn, [1])
 
 
+def test_removed_link_readded_reconnects_evidence_without_duplicate(lib):
+    _, conn = lib
+    link = "https://x.com/a/status/1849000000000000000"
+    review.save(conn, [1], revisions(conn, [1]), text=link)
+    source = review.detail(conn, 1)["sources"][-1]
+    review.save(conn, [1], revisions(conn, [1]), edits=[{"id": source["id"], "remove": True}])
+    result = review.save(conn, [1], revisions(conn, [1]), text=link)
+    item = result["items"][0]
+    evidence = [e for e in item["evidence"] if e["input_text"] == link]
+    assert len(evidence) == 1 and evidence[0]["source_id"] == item["sources"][-1]["id"]
+    assert evidence[0]["dismissed"] == 0
+    assert any(h["platform"] == "x" for h in item["source_hints"])
+
+
 def test_shared_publish_time_requires_exact_scope_and_undo(lib):
     _, conn = lib
     review.save(conn, [2], revisions(conn, [2]), text="https://pixiv.net/artworks/123456789")

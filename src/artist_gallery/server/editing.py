@@ -38,7 +38,8 @@ def endpoint(handler):
 
 
 def _id(request: Request) -> int:
-    return int(request.path_params["image_id"])
+    value = int(request.path_params["image_id"])
+    return operations.image_ids([value])[0]
 
 
 @endpoint
@@ -62,6 +63,8 @@ def file_size(request: Request, conn: sqlite3.Connection) -> dict:
     if row["missing"]:
         raise operations.OperationError("展示文件已标记缺失，无法读取大小")
     path = archiving.media_path(library_root(request), row["rel_path"])
+    if not path.is_file():
+        raise operations.OperationError("当前展示文件不存在或不是普通文件，无法读取大小")
     return {"file_id": row["id"], "bytes": path.stat().st_size}
 
 

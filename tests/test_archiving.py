@@ -1,5 +1,6 @@
 """归档必须与撤销、日志、失败和中断恢复一起验证。"""
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -122,6 +123,8 @@ def test_undo_conflict_preserves_all(lib):
     assert review.detail(conn, 1) == after
     assert (root / before["rel_path"]).read_bytes() == b"occupied"
     assert (root / after["rel_path"]).is_file()
+    assert ops.latest(conn)["id"] == done["operation_id"]
+    assert "无法撤销" in ops.latest(conn)["message"]
 
 
 @pytest.mark.parametrize("action", ["finish", "rollback"])
@@ -298,6 +301,30 @@ def test_pending_blocks_cli_import(lib, tmp_path, monkeypatch):
     with pytest.raises(ops.ConflictError):
         import_files(root, [src])
     assert src.exists()
+
+
+def test_completed_recovery_cannot_be_replayed_by_old_request(lib, monkeypatch):
+    root, conn = lib
+    original = archiving.copy_verified
+
+    def fail(*args):
+        raise OSError("copy failure")
+
+    monkeypatch.setattr(archiving, "copy_verified", fail)
+    with pytest.raises(ops.ConflictError):
+        execute(root, conn, [1])
+    waiting = ops.pending(conn)[0]
+    old = {k: copy.deepcopy(v) for k, v in waiting.items() if k not in {"id", "kind"}}
+    monkeypatch.setattr(archiving, "copy_verified", original)
+    archiving.recover(conn, root, waiting["id"], action="rollback", confirmed=True)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(ops.ConflictError, match="另一请求"):
+            archiving._finish(conn, root, waiting["id"], old)
+    finally:
+        conn.rollback()
+    assert review.detail(conn, 1)["state"] == "inbox"
+    assert not list((root / "images/archived").iterdir())
 
 
 def test_intent_commit_failure_never_copies(lib, monkeypatch):

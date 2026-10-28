@@ -27,7 +27,9 @@ def encode(value: Any) -> str:
 def image_ids(values: Any) -> list[int]:
     if not isinstance(values, list) or not values or len(values) > 10000:
         raise OperationError("请选择 1～10000 张图片")
-    if any(type(v) is not int or v <= 0 for v in values) or len(set(values)) != len(values):
+    if any(type(v) is not int or not 0 < v < (1 << 53) for v in values) or len(set(values)) != len(
+        values
+    ):
         raise OperationError("图片编号必须是互不重复的正整数")
     return values
 
@@ -100,6 +102,17 @@ def log_operation(conn: sqlite3.Connection, kind: str, payload: dict) -> int:
 
 def update_log(conn: sqlite3.Connection, log_id: int, payload: dict) -> None:
     conn.execute("UPDATE op_log SET payload=? WHERE id=?", (encode(payload), log_id))
+
+
+def mark_undo_failure(conn: sqlite3.Connection, log_id: int, message: str) -> None:
+    """仅登记无法撤销的原因，不跳过此记录，不改图片或文件。"""
+    row = conn.execute("SELECT payload FROM op_log WHERE id=?", (log_id,)).fetchone()
+    if row is None:
+        return
+    data = json.loads(row[0])
+    if data.get("status") == "done" and not data.get("undone"):
+        with conn:
+            update_log(conn, log_id, {**data, "undo_error": message})
 
 
 def latest(conn: sqlite3.Connection) -> dict:

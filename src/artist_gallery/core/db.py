@@ -120,6 +120,15 @@ def _validate_schema(conn: sqlite3.Connection, version: int) -> None:
         columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if not required <= columns:
             raise LibraryFormatError(f"图库结构不完整（v{version} {table}），不会自动重建")
+    if "library_meta" in required_schema:
+        identity = conn.execute("SELECT value FROM library_meta WHERE key='id'").fetchone()
+        if (
+            identity is None
+            or not isinstance(identity[0], str)
+            or len(identity[0]) != 32
+            or any(c not in "0123456789abcdef" for c in identity[0])
+        ):
+            raise LibraryFormatError("图库身份标识缺失或损坏，不会重新生成或写入")
 
 
 def open_library(root: Path, *, readonly: bool = False) -> sqlite3.Connection:

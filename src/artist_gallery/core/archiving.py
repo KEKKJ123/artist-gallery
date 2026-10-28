@@ -129,10 +129,17 @@ def preview(conn: sqlite3.Connection, root: Path, ids: list[int], *, force: bool
     return result
 
 
+def _ensure_intent(conn: sqlite3.Connection, log_id: int, data: dict) -> None:
+    row = conn.execute("SELECT payload FROM op_log WHERE id=?", (log_id,)).fetchone()
+    if row is None or json.loads(row[0]) != data or data.get("status") != "pending":
+        raise ops.ConflictError("文件操作已被另一请求处理，请刷新；不会重复执行旧意图")
+
+
 def _persist(conn: sqlite3.Connection, log_id: int, data: dict) -> None:
     ops.update_log(conn, log_id, data)
     conn.commit()
     conn.execute("BEGIN IMMEDIATE")
+    _ensure_intent(conn, log_id, data)
 
 
 def _check_records(conn: sqlite3.Connection, data: dict) -> None:
@@ -168,6 +175,7 @@ def _target(root: Path, m: dict) -> Path:
 
 
 def _finish(conn: sqlite3.Connection, root: Path, log_id: int, data: dict) -> None:
+    _ensure_intent(conn, log_id, data)
     _check_records(conn, data)
     for m in data["moves"]:
         src, dst = media_path(root, m["from"]), media_path(root, m["to"])
@@ -271,6 +279,18 @@ def archive(
 
 
 def undo(conn: sqlite3.Connection, root: Path, expected_id: int) -> dict:
+    try:
+        return _undo(conn, root, expected_id)
+    except (ops.OperationError, OSError) as e:
+        conn.rollback()
+        try:
+            ops.mark_undo_failure(conn, expected_id, f"无法撤销：{e}")
+        except sqlite3.Error:
+            pass
+        raise
+
+
+def _undo(conn: sqlite3.Connection, root: Path, expected_id: int) -> dict:
     top = ops.latest(conn)
     if top.get("id") != expected_id or not top["can_undo"]:
         raise ops.ConflictError("撤销顺序已改变，请刷新")

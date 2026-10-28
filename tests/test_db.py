@@ -213,6 +213,50 @@ def test_missing_upgrade_validation_refuses_before_any_write(tmp_path, monkeypat
     assert (tmp_path / db.DB_NAME).read_bytes() == before
 
 
+def test_real_v5_upgrade_preserves_ids_sources_tags_files_and_stable_library_id(tmp_path):
+    _init_baseline(tmp_path)
+    conn = db.connect(tmp_path)
+    with conn:
+        conn.execute("INSERT INTO image(id,state) VALUES(42,'archived')")
+        conn.execute("INSERT INTO tag(id,ns,name) VALUES(7,'character','红豆')")
+        conn.execute("INSERT INTO image_tag VALUES(42,7)")
+        conn.execute(
+            "INSERT INTO image_file(id,image_id,rel_path,sha256,orig_name) VALUES(8,42,?,?,?)",
+            ("images/archived/原名.png", "a" * 64, "原名.png"),
+        )
+    conn.close()
+    file = tmp_path / "images/archived/原名.png"
+    file.parent.mkdir(parents=True)
+    file.write_bytes(b"kept unmodified")
+    conn = db.open_library(tmp_path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert conn.execute("SELECT state FROM image WHERE id=42").fetchone()[0] == "archived"
+    assert tuple(conn.execute("SELECT * FROM image_tag").fetchone()) == (42, 7)
+    assert conn.execute("SELECT orig_name FROM image_file WHERE id=8").fetchone()[0] == "原名.png"
+    identity = conn.execute("SELECT value FROM library_meta WHERE key='id'").fetchone()[0]
+    conn.close()
+    assert file.read_bytes() == b"kept unmodified"
+    conn = db.open_library(tmp_path)
+    assert conn.execute("SELECT value FROM library_meta WHERE key='id'").fetchone()[0] == identity
+    conn.close()
+
+
+@pytest.mark.parametrize("identity", [None, "", "broken", "z" * 32])
+def test_broken_library_identity_rejected_without_regeneration(tmp_path, identity):
+    db.init_library(tmp_path)
+    conn = db.connect(tmp_path)
+    with conn:
+        if identity is None:
+            conn.execute("DELETE FROM library_meta WHERE key='id'")
+        else:
+            conn.execute("UPDATE library_meta SET value=? WHERE key='id'", (identity,))
+    conn.close()
+    before = (tmp_path / db.DB_NAME).read_bytes()
+    with pytest.raises(db.LibraryFormatError, match="身份标识"):
+        db.open_library(tmp_path)
+    assert (tmp_path / db.DB_NAME).read_bytes() == before
+
+
 def test_readonly_outdated_supported_format_does_not_upgrade(tmp_path, monkeypatch):
     _init_baseline(tmp_path)
     before = (tmp_path / db.DB_NAME).read_bytes()

@@ -209,7 +209,8 @@ def save(
                     "INSERT INTO source_evidence(image_id,source_id,platform,post_id,page,"
                     "input_kind,input_text,rule_key,confidence,evidence_key) "
                     "VALUES(?,?,?,?,?,'link',?,'link-v1','high',?) "
-                    "ON CONFLICT(evidence_key) DO NOTHING",
+                    "ON CONFLICT(evidence_key) DO UPDATE SET "
+                    "source_id=excluded.source_id,dismissed=0",
                     (
                         image_id,
                         source,

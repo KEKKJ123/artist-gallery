@@ -20,7 +20,7 @@ IMAGE_COLUMNS = (
 )
 HAS_HINT = """EXISTS (
     SELECT 1 FROM source_evidence e LEFT JOIN image_source s ON s.id=e.source_id
-    WHERE e.image_id=i.id AND (s.id IS NULL OR s.status='pending')
+    WHERE e.image_id=i.id AND e.dismissed=0 AND (s.id IS NULL OR s.status='pending')
 )"""
 
 
@@ -69,7 +69,8 @@ def images_to_list(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[di
     seen: dict[int, set[tuple]] = {i: set() for i in ids}
     for r in conn.execute(
         f"SELECT e.* FROM source_evidence e LEFT JOIN image_source s ON s.id=e.source_id "
-        f"WHERE e.image_id IN ({q}) AND (s.id IS NULL OR s.status='pending') ORDER BY e.id",
+        f"WHERE e.image_id IN ({q}) AND e.dismissed=0 "
+        "AND (s.id IS NULL OR s.status='pending') ORDER BY e.id",
         ids,
     ):
         key = (r["platform"], r["post_id"], r["page"])

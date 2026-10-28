@@ -6,6 +6,7 @@ import { fetchNavigation, fetchPlatforms } from '../lib/api.js'
 export const useLibraryStore = defineStore('library', () => {
   const nav = ref({ inbox: 0, inbox_hinted: 0, archived: 0 })
   const platformNames = ref({})
+  const platforms = ref([])
   let navEpoch = 0
   let platformsLoaded = false
   let platformsPending = null
@@ -26,6 +27,7 @@ export const useLibraryStore = defineStore('library', () => {
     platformsPending = (async () => {
       try {
         const list = await fetchPlatforms()
+        platforms.value = list
         platformNames.value = Object.fromEntries(list.map((p) => [p.id, p.name]))
         platformsLoaded = true // 空列表也是成功，不能靠对象是否为空判断。
       } catch {
@@ -41,5 +43,5 @@ export const useLibraryStore = defineStore('library', () => {
     await Promise.all([loadNav(), loadPlatforms()])
   }
 
-  return { nav, platformNames, loadNav, loadPlatforms, refresh }
+  return { nav, platformNames, platforms, loadNav, loadPlatforms, refresh }
 })

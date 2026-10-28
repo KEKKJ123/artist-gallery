@@ -26,6 +26,7 @@ from artist_gallery.core import db
 from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.layout import INBOX
 from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
+from artist_gallery.core.operations import require_idle
 from artist_gallery.core.recognize import (
     Confidence,
     Recognition,
@@ -135,6 +136,8 @@ class _Importer:
         self.dry_run = dry_run
         self.conn = db.open_library(root, readonly=dry_run)
         try:
+            if not dry_run:
+                require_idle(self.conn)
             self.rules: RuleSet = load_rules(self.conn)
         except BaseException:
             self.conn.close()
@@ -186,6 +189,18 @@ class _Importer:
         return record_filename(self.conn, image_id, file_id, src.name, rec)
 
     def import_one(self, src: Path) -> ImportItem:
+        """每个正式条目先取得写锁，避免恢复意图与导入复制／记录交错。"""
+        if self.dry_run:
+            return self._import_one(src)
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            require_idle(self.conn)
+            return self._import_one(src)
+        finally:
+            if self.conn.in_transaction:
+                self.conn.rollback()
+
+    def _import_one(self, src: Path) -> ImportItem:
         try:
             sha = sha256_file(src)
         except OSError as e:
@@ -354,19 +369,24 @@ def delete_sources(report: ImportReport) -> list[DeleteResult]:
     results: list[DeleteResult] = []
     conn = db.open_library(report.root)
     try:
+        require_idle(conn)
         for it in report.deletable():
             assert it.sha256 and it.rel_path
             try:
+                conn.execute("BEGIN IMMEDIATE")
+                require_idle(conn)
                 row = conn.execute(
                     "SELECT rel_path, sha256 FROM image_file WHERE id=?", (it.file_id,)
                 ).fetchone()
                 if row is None or row["sha256"] != it.sha256:
                     results.append(DeleteResult(it, False, "图库记录已变化，保留源文件"))
+                    conn.rollback()
                     continue
                 copy = (report.root / row["rel_path"]).resolve()
                 problem = _source_delete_problem(report.root, it, copy)
                 if problem:
                     results.append(DeleteResult(it, False, problem))
+                    conn.rollback()
                     continue
                 payload = {
                     "from": str(it.src),
@@ -382,15 +402,19 @@ def delete_sources(report: ImportReport) -> list[DeleteResult]:
                         (report.batch_id, json.dumps(payload, ensure_ascii=False)),
                     ).lastrowid
             except (OSError, sqlite3.Error) as e:
+                conn.rollback()
                 results.append(DeleteResult(it, False, f"删除前校验或日志失败，保留源文件：{e}"))
                 continue
 
             try:
+                conn.execute("BEGIN IMMEDIATE")
+                require_idle(conn)
                 problem = _source_delete_problem(report.root, it, copy)
                 if problem:
                     raise OSError(problem)
                 it.src.unlink()
-            except OSError as e:
+            except (OSError, sqlite3.Error, ValueError) as e:
+                conn.rollback()
                 message = f"未完成删除：{e}"
                 try:
                     _finish_delete(conn, log_id, payload, "failed")

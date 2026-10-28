@@ -1,6 +1,6 @@
 # 模块边界与依赖方向
 
-本文对应 T1 新格式模型；需求见 [design.md](design.md) v0.10、交互见 [frontend-style.md](frontend-style.md)，剩余阶段见 [transition.md](transition.md)。核查／归档／属性编辑尚未实现，不把结构预留当作功能入口。
+本文对应 T1＋T2 新格式模型；需求见 [design.md](design.md) v0.10、交互见 [frontend-style.md](frontend-style.md)，剩余阶段见 [transition.md](transition.md)。核查／归档／撤销／恢复已接入；属性编辑与检索仍待 T3。
 
 ## 后端
 
@@ -18,6 +18,12 @@ core/platforms.py              内置平台定义及平台列表查询
 core/importer.py               原名安全导入、增量副本校验、确认后删源
   └─ sources.py               记录去重的来源证据与待核查关联，不覆盖人工结果
 core/thumbnail.py              缩略图生成（Pillow），共用 media.py 的格式表
+core/review.py                 逐行链接与人工来源核查，不搬文件、不归档
+core/drafts.py                 图片独立草稿、版本检查、图库身份
+core/operations.py             来源快照、修订指纹、倒序撤销与操作日志
+core/archiving.py              文件意图、复制校验、归档／撤销、显式恢复
+server/editing.py              参数解析与 core 调用
+server/write_guard.py          同源、JSON 和请求体限制
 ```
 
 - `browse` 可调用 `inbox.count_inbox_hinted` 取得导航统计，但不得为了常量或共用投影引入导入流程。
@@ -30,6 +36,10 @@ core/thumbnail.py              缩略图生成（Pillow），共用 media.py 的
 
 ```text
 App / components
+  ├─ stores/review.js      明确检查队列、草稿串行同步、文件大小与异步代次
+  │    └─ lib/review-drafts.js  本地草稿兜底、图库／图片键与大小显示
+  ├─ ReviewScreen / SourceEditor    逐图核查与来源证据
+  ├─ OperationDialogs     多选范围／强制归档清单／文件恢复与键盘隔离
   ├─ stores/inbox.js       当前视图的协调器；显式列出界面能用的状态与动作
   │    ├─ useImageCollection   分页、加载错误、请求代次、去重
   │    ├─ useImageSelection    选择、焦点、当前预览；只接收图片集合

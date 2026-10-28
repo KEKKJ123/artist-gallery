@@ -20,7 +20,8 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from artist_gallery.core import db
-from artist_gallery.server import api, media, pages
+from artist_gallery.server import api, editing, media, pages
+from artist_gallery.server.write_guard import WriteGuard
 
 STATIC_DIR = Path(__file__).parent / "static"
 LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]", "testserver"]
@@ -41,6 +42,17 @@ def create_app(library_root: Path, *, allow_any_host: bool = False) -> Starlette
         Route("/api/navigation", api.api_navigation),
         Route("/api/archived", api.api_archived),
         Route("/api/platforms", api.api_platforms),
+        Route("/api/library", editing.metadata),
+        Route("/api/images/{image_id:int}", editing.image_detail),
+        Route("/api/images/{image_id:int}/size", editing.file_size),
+        Route("/api/images/{image_id:int}/draft", editing.get_draft, methods=["GET"]),
+        Route("/api/images/{image_id:int}/draft", editing.put_draft, methods=["PUT"]),
+        Route("/api/review/parse", editing.parse, methods=["POST"]),
+        Route("/api/review/save", editing.save_review, methods=["POST"]),
+        Route("/api/archive/plan", editing.archive_plan, methods=["POST"]),
+        Route("/api/archive", editing.archive, methods=["POST"]),
+        Route("/api/undo", editing.undo, methods=["POST"]),
+        Route("/api/recover", editing.recover, methods=["POST"]),
         Route("/api/{rest:path}", api.api_not_found),
         Route("/thumbs/{sha256}", media.serve_thumb),
         Route("/images/{rel_path:path}", media.serve_image),
@@ -48,7 +60,8 @@ def create_app(library_root: Path, *, allow_any_host: bool = False) -> Starlette
         Route("/{path:path}", pages.spa_fallback),
     ]
     middleware = [
-        Middleware(TrustedHostMiddleware, allowed_hosts=["*"] if allow_any_host else LOCAL_HOSTS)
+        Middleware(TrustedHostMiddleware, allowed_hosts=["*"] if allow_any_host else LOCAL_HOSTS),
+        Middleware(WriteGuard),
     ]
     app = Starlette(routes=routes, middleware=middleware)
     app.state.library_root = library_root

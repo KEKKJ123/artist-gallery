@@ -98,15 +98,21 @@ button {
   cursor: pointer;
   transition: background var(--dur), border-color var(--dur);
 }
-button:hover {
+button:hover:not(:disabled) {
   background: var(--bg-sunken);
+}
+button:disabled {
+  cursor: default;
+  color: var(--fg-dim);
+  background: var(--bg-sunken);
+  border-color: var(--border);
 }
 button:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-button.primary {
+button.primary:not(:disabled) {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: var(--accent);

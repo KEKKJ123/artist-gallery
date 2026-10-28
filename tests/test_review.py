@@ -161,6 +161,21 @@ def test_draft_separate_persistent_cas_and_clear(lib):
     assert before == revisions(conn, [1])
 
 
+def test_shared_publish_time_requires_exact_scope_and_undo(lib):
+    _, conn = lib
+    review.save(conn, [2], revisions(conn, [2]), text="https://pixiv.net/artworks/123456789")
+    source = review.detail(conn, 1)["sources"][0]
+    assert source["time_image_ids"] == [1, 2]
+    edit = {"id": source["id"], "posted_at": "2026-10-28T12:00:00+08:00"}
+    with pytest.raises(ops.OperationError, match="共享"):
+        review.save(conn, [1], revisions(conn, [1]), edits=[edit], confirm_scope=True)
+    edit["time_scope_ids"] = [1, 2]
+    saved = review.save(conn, [1], revisions(conn, [1]), edits=[edit], confirm_scope=True)
+    assert review.detail(conn, 2)["sources"][0]["posted_at"] == edit["posted_at"]
+    ops.undo_review(conn, saved["operation_id"])
+    assert review.detail(conn, 2)["sources"][0]["posted_at"] is None
+
+
 @pytest.mark.parametrize("page", [-1, True, 1.5, 1 << 53, "0"])
 def test_invalid_page_does_not_write(lib, page):
     _, conn = lib

@@ -7,7 +7,7 @@ import re
 import sqlite3
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 from artist_gallery.core import operations as ops
 from artist_gallery.core.images import IMAGE_COLUMNS, IMAGE_FROM, images_to_list
@@ -78,7 +78,6 @@ def parse_links(conn: sqlite3.Connection, text: str) -> list[dict]:
             if len(post_id) > 256:
                 raise ValueError("发布 ID 过长")
             # 无页码链接保持未知；不读取查询参数猜作者或发布时间。
-            parse_qs(url.query)
             entry.update(platform=platform, post_id=post_id, page=page)
         except ValueError as e:
             entry["error"] = str(e)
@@ -107,6 +106,15 @@ def detail(conn: sqlite3.Connection, image_id: int) -> dict:
             "SELECT * FROM source_evidence WHERE image_id=? ORDER BY id", (image_id,)
         )
     ]
+    for source in item["sources"]:
+        source["time_image_ids"] = [
+            r[0]
+            for r in conn.execute(
+                "SELECT s.image_id FROM image_source s JOIN post p ON p.id=s.post_id "
+                "WHERE p.platform=? AND p.post_id=? ORDER BY s.image_id",
+                (source["platform"], source["post_id"]),
+            )
+        ]
     item["revision"] = ops.revision(conn, image_id)
     return item
 
@@ -248,7 +256,16 @@ def save(
                     affected = conn.execute(
                         "SELECT COUNT(*) FROM image_source WHERE post_id=?", (source["post_id"],)
                     ).fetchone()[0]
-                    if affected > 1 and confirm_scope is not True:
+                    affected_ids = [
+                        r[0]
+                        for r in conn.execute(
+                            "SELECT image_id FROM image_source WHERE post_id=? ORDER BY image_id",
+                            (source["post_id"],),
+                        )
+                    ]
+                    if affected > 1 and (
+                        confirm_scope is not True or edit.get("time_scope_ids") != affected_ids
+                    ):
                         raise ops.OperationError(
                             f"该发布时间关联 {affected} 张图片，请先确认共享发布的修改范围"
                         )

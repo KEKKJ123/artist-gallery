@@ -26,6 +26,7 @@ from artist_gallery.core import db
 from artist_gallery.core.fileops import copy_verified, sha256_file
 from artist_gallery.core.layout import INBOX
 from artist_gallery.core.media import IMAGE_EXTS, MEDIA_EXTS
+from artist_gallery.core.operations import require_idle
 from artist_gallery.core.recognize import (
     Confidence,
     Recognition,
@@ -135,6 +136,8 @@ class _Importer:
         self.dry_run = dry_run
         self.conn = db.open_library(root, readonly=dry_run)
         try:
+            if not dry_run:
+                require_idle(self.conn)
             self.rules: RuleSet = load_rules(self.conn)
         except BaseException:
             self.conn.close()
@@ -354,6 +357,7 @@ def delete_sources(report: ImportReport) -> list[DeleteResult]:
     results: list[DeleteResult] = []
     conn = db.open_library(report.root)
     try:
+        require_idle(conn)
         for it in report.deletable():
             assert it.sha256 and it.rel_path
             try:

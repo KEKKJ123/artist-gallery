@@ -3,7 +3,7 @@ import { isHelpKey, keyBelongsToControl } from '../lib/keys.js'
 
 /** 网格层快捷键；动作由调用者提供，弹层仍在捕获阶段处理自己的键盘。 */
 export function useGalleryKeys({
-  helpOpen, drawerOpen, closeNav, getCols,
+  helpOpen, drawerOpen, closeNav, getCols, suspended = () => false,
   selectAll, clearSelection, moveFocus, openPreview,
 }) {
   function onKey(e) {
@@ -17,7 +17,7 @@ export function useGalleryKeys({
       return
     }
     // 帮助框打开时，背后的网格不响应按键（Esc 由帮助框自己处理）
-    if (helpOpen.value) return
+    if (helpOpen.value || suspended()) return
     // 预览和帮助各自在捕获阶段接管了按键；走到这里说明它们没开
     const mod = e.ctrlKey || e.metaKey
 

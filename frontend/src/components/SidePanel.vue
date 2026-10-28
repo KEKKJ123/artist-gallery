@@ -1,11 +1,31 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { hintLabel } from '../lib/format.js'
+import { fetchFileSize } from '../lib/api.js'
+import { formatBytes } from '../lib/review-drafts.js'
 import { useInboxStore } from '../stores/inbox.js'
 
 const inbox = useInboxStore()
 const n = computed(() => inbox.selected.size)
 const one = computed(() => (n.value === 1 ? inbox.selectedItems[0] : null))
+const size = ref(null)
+const sizeMessage = ref('')
+watch(() => `${one.value?.id}:${one.value?.file_id}:${one.value?.rel_path}`, async (_, __, onCleanup) => {
+  let active = true
+  onCleanup(() => { active = false })
+  size.value = null
+  sizeMessage.value = ''
+  const item = one.value
+  if (!item) return
+  if (!item.file_id) { sizeMessage.value = '展示文件待设置'; return }
+  sizeMessage.value = '读取中…'
+  try {
+    const data = await fetchFileSize(item.id)
+    if (!active || data.file_id !== item.file_id) return
+    size.value = data.bytes
+    sizeMessage.value = ''
+  } catch (e) { if (active) sizeMessage.value = e.message }
+}, { immediate: true })
 
 // 选中的图里有多少带来源建议
 const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hints?.length).length)
@@ -36,6 +56,8 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hints
         <dd class="mono">{{ one.rel_path || '—' }}</dd>
         <dt v-if="one.width">尺寸</dt>
         <dd v-if="one.width">{{ one.width }} × {{ one.height }}</dd>
+        <dt>文件大小</dt>
+        <dd>{{ size != null ? formatBytes(size) : sizeMessage }}<small>（当前展示版本，不是原图证明）</small></dd>
         <dt>画师</dt>
         <dd>{{ one.artist?.name || '未知' }}</dd>
         <dt>内容 tag</dt>
@@ -67,12 +89,12 @@ const withHint = computed(() => inbox.selectedItems.filter((i) => i.source_hints
     </section>
 
     <section v-if="inbox.isInbox" class="todo">
-      <h3>归档与打 tag</h3>
-      <p>粘贴链接归档、绑定画师、打 tag 将在后续版本加入（T2 / T3）。</p>
+      <h3>来源核查与归档</h3>
+      <p>点上方“开始逐图检查”核对来源；多选可追加来源或预览归档。画师与内容 tag 编辑待 T3。</p>
     </section>
     <section v-else class="todo">
-      <h3>只读浏览</h3>
-      <p>已归档视图当前只读，来源核查与编辑将在后续加入。</p>
+      <h3>继续补充资料</h3>
+      <p>已归档图片也可逐图核查、追加来源，保存不会自动退回收件箱。</p>
     </section>
   </aside>
 </template>

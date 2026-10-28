@@ -14,7 +14,7 @@ def test_init_creates_layout(tmp_path):
         assert (tmp_path / sub).exists()
     conn = db.open_library(tmp_path)
     assert conn.execute("PRAGMA application_id").fetchone()[0] == db.APPLICATION_ID
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"image", "image_file", "image_tag", "source_evidence"} <= names
@@ -63,8 +63,22 @@ def test_other_formats_fail_without_write(tmp_path, kind):
     assert path.read_bytes() == before
 
 
+def _init_baseline(tmp_path):
+    """真实当前格式 v5 基线（不是改路线前旧库），供后续升级机制测试。"""
+    from importlib import resources
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(tmp_path / db.DB_NAME)
+    schema = resources.files("artist_gallery.core").joinpath("schema.sql").read_text("utf-8")
+    conn.executescript(schema)
+    conn.execute(f"PRAGMA application_id={db.APPLICATION_ID}")
+    conn.execute("PRAGMA user_version=5")
+    conn.commit()
+    conn.close()
+
+
 def test_failed_new_format_migration_rolls_back(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     monkeypatch.setattr(
         db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN zzz TEXT; SELECT * FROM no_such;"]
     )
@@ -79,7 +93,7 @@ def test_failed_new_format_migration_rolls_back(tmp_path, monkeypatch):
 
 
 def test_successful_new_format_upgrade(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
     monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {**db.REQUIRED_SCHEMAS, 6: db.REQUIRED_SCHEMAS[5]})
@@ -143,7 +157,7 @@ def test_readonly_does_not_sync_or_allow_write(tmp_path, monkeypatch):
 
 
 def test_new_required_field_does_not_block_its_migration(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
@@ -155,7 +169,7 @@ def test_new_required_field_does_not_block_its_migration(tmp_path, monkeypatch):
 
 
 def test_target_schema_failure_rolls_back_entire_step(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN wrong_field TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
@@ -169,7 +183,7 @@ def test_target_schema_failure_rolls_back_entire_step(tmp_path, monkeypatch):
 
 
 def test_all_intermediate_versions_checked_and_repeat_open_is_idempotent(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     required6 = {**db.REQUIRED_SCHEMAS[5], "image": db.REQUIRED_SCHEMAS[5]["image"] | {"note"}}
     required7 = {**required6, "image": required6["image"] | {"extra_note"}}
     monkeypatch.setattr(
@@ -189,17 +203,18 @@ def test_all_intermediate_versions_checked_and_repeat_open_is_idempotent(tmp_pat
 
 
 def test_missing_upgrade_validation_refuses_before_any_write(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     before = (tmp_path / db.DB_NAME).read_bytes()
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    monkeypatch.setattr(db, "REQUIRED_SCHEMAS", {5: db.REQUIRED_SCHEMAS[5]})
     with pytest.raises(db.LibraryFormatError, match="缺少图库版本 6"):
         db.open_library(tmp_path)
     assert (tmp_path / db.DB_NAME).read_bytes() == before
 
 
 def test_readonly_outdated_supported_format_does_not_upgrade(tmp_path, monkeypatch):
-    db.init_library(tmp_path)
+    _init_baseline(tmp_path)
     before = (tmp_path / db.DB_NAME).read_bytes()
     monkeypatch.setattr(db, "MIGRATIONS", ["ALTER TABLE image ADD COLUMN note TEXT;"])
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)

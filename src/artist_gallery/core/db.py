@@ -9,7 +9,24 @@ from pathlib import Path
 DB_NAME = "library.db"
 APPLICATION_ID = 0x41475259  # AGRY
 BASE_VERSION = 5  # 当前格式的起始版本
-MIGRATIONS: list[str] = []  # 第 i 条升级 BASE_VERSION+i → BASE_VERSION+i+1
+# 第 i 条升级 BASE_VERSION+i → BASE_VERSION+i+1；不改写基线 5。
+MIGRATIONS: list[str] = [
+    """
+    CREATE TABLE library_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    INSERT INTO library_meta(key,value) VALUES ('id',lower(hex(randomblob(16))));
+    CREATE TABLE review_draft (
+      image_id INTEGER PRIMARY KEY REFERENCES image(id) ON DELETE CASCADE,
+      payload TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    ALTER TABLE source_evidence ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0
+      CHECK(dismissed IN (0,1));
+    """,
+]
 SCHEMA_VERSION = BASE_VERSION + len(MIGRATIONS)
 _BASE_REQUIRED = {
     "image": {"id", "state", "artist_id", "added_at"},
@@ -51,7 +68,15 @@ _BASE_REQUIRED = {
     "op_log": {"id", "batch_id", "kind", "payload", "at"},
 }
 # 每个版本记录其自身的必需结构；追加迁移时同时追加目标版本校验，不能改写基线。
-REQUIRED_SCHEMAS: dict[int, dict[str, set[str]]] = {BASE_VERSION: _BASE_REQUIRED}
+REQUIRED_SCHEMAS: dict[int, dict[str, set[str]]] = {
+    BASE_VERSION: _BASE_REQUIRED,
+    6: {
+        **_BASE_REQUIRED,
+        "library_meta": {"key", "value"},
+        "review_draft": {"image_id", "payload", "revision", "updated_at"},
+        "source_evidence": _BASE_REQUIRED["source_evidence"] | {"dismissed"},
+    },
+}
 
 
 class NotALibraryError(FileNotFoundError):

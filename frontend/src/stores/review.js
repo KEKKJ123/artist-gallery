@@ -20,6 +20,7 @@ export const useReviewStore = defineStore('review', () => {
   const busy = ref(false)
   const error = ref('')
   const notice = ref('')
+  const noticeSeq = ref(0)
   const size = ref(null)
   const sizeError = ref('')
   const lines = ref([])
@@ -46,6 +47,12 @@ export const useReviewStore = defineStore('review', () => {
   let generation = 0
   let parseGeneration = 0
   let metadataGeneration = 0
+
+  // 一次性成功提示；序号递增让相同文字也重新显示。失败仍写 error，不走这里。
+  function announce(text) {
+    notice.value = text
+    noticeSeq.value++
+  }
 
   async function refreshOperations() {
     const gen = ++metadataGeneration
@@ -227,9 +234,9 @@ export const useReviewStore = defineStore('review', () => {
       writeLocalDraft(localStorage, s.library, s.id, { payload: s.payload, revision: s.revision, owner })
       await syncSession(s)
       lines.value = result.lines.filter((l) => l.error)
-      notice.value = result.lines.some((l) => l.error)
+      announce(result.lines.some((l) => l.error)
         ? '有效内容已保存；错误行仍留在草稿，请纠正后继续'
-        : '资料已保存，未自动归档'
+        : '资料已保存，未自动归档')
       await refreshOperations()
       busy.value = false
       if (next && !lines.value.length && !s.failed) await step(1)
@@ -288,28 +295,32 @@ export const useReviewStore = defineStore('review', () => {
   }
 
   async function prepareArchive(ids, force = false) {
-    if (busy.value) return
+    if (busy.value) return false
     busy.value = true
     error.value = ''
+    let plan = null
     try {
-      archivePlan.value = { ...(await planArchive([...ids], force, libraryId.value)), ids: [...ids] }
+      plan = { ...(await planArchive([...ids], force, libraryId.value)), ids: [...ids] }
     } catch (e) { error.value = e.message }
     finally { busy.value = false }
-    // 单图正常归档有配套撤销，无额外弹框；缺项、强制或多图仍展示清单。
-    if (ids.length === 1 && !force && archivePlan.value && !archivePlan.value.errors.length) {
-      return archive(false)
-    }
+    if (!plan) return false
+    // 单图正常归档有配套撤销，直接执行且不写 archivePlan，清单弹窗不会闪现；
+    // 缺项、强制或多图才写入并展示清单。runArchive 在首个 await 前重新置 busy，中间无可插入的间隙。
+    if (ids.length === 1 && !force && !plan.errors.length) return runArchive(plan, false)
+    archivePlan.value = plan
     return false
   }
-  async function archive(confirmed = false) {
-    const plan = archivePlan.value
+  function archive(confirmed = false) {
+    return runArchive(archivePlan.value, confirmed)
+  }
+  async function runArchive(plan, confirmed) {
     if (!plan || plan.errors.length || busy.value) return false
     busy.value = true
     error.value = ''
     try {
       await executeArchive({ ids: plan.ids, token: plan.token, force: plan.force, confirmed }, libraryId.value)
       archivePlan.value = null
-      notice.value = `已归档 ${plan.ids.length} 张；来源核查状态保持不变`
+      announce(`已归档 ${plan.ids.length} 张；来源核查状态保持不变`)
       await refreshOperations()
       if (item.value && plan.ids.includes(item.value.id)) await refreshItem()
       return true
@@ -324,7 +335,7 @@ export const useReviewStore = defineStore('review', () => {
     busy.value = true
     try {
       await undoOperation(operations.value.id, libraryId.value)
-      notice.value = '已撤销最近一次操作；草稿未视为正式资料'
+      announce('已撤销最近一次操作；草稿未视为正式资料')
       await refreshOperations()
       await refreshItem()
       return true
@@ -336,7 +347,7 @@ export const useReviewStore = defineStore('review', () => {
     busy.value = true
     try {
       await recoverOperation(id, action, libraryId.value)
-      notice.value = action === 'finish' ? '文件操作已完成' : '已恢复操作前状态'
+      announce(action === 'finish' ? '文件操作已完成' : '已恢复操作前状态')
       await refreshOperations()
       return true
     } catch (e) { error.value = e.message; await refreshOperations().catch(() => {}); return false }
@@ -375,7 +386,7 @@ export const useReviewStore = defineStore('review', () => {
       bulk.lines = result.lines.filter((l) => l.error)
       bulk.text = bulk.lines.map((l) => l.input).join('\n')
       bulk.revisions = Object.fromEntries(result.items.map((i) => [i.id, i.revision]))
-      notice.value = bulk.text ? '有效链接已追加给每张所选图；错误行已保留' : '链接已追加，仍待逐图核查，未自动归档'
+      announce(bulk.text ? '有效链接已追加给每张所选图；错误行已保留' : '链接已追加，仍待逐图核查，未自动归档')
       bulk.ready = !!bulk.text
       await refreshOperations()
       return true
@@ -383,7 +394,7 @@ export const useReviewStore = defineStore('review', () => {
     finally { busy.value = false }
   }
   return {
-    open, queue, index, item, loading, busy, error, notice, size, sizeError, lines,
+    open, queue, index, item, loading, busy, error, notice, noticeSeq, size, sizeError, lines,
     libraryId, operations, archivePlan, bulk, active, draft, stale, currentId,
     refreshOperations, start, show, close, step, changed, editSource, dismissEvidence,
     parse, save, discard, reloadDraft, prepareArchive, archive, undo, recover, prepareBulk, bulkChanged, parseBulk, saveBulk,

@@ -132,6 +132,47 @@ it('单图正常归档直接执行，强制或多图必须停在清单', async (
   expect(api.executeArchive).toHaveBeenCalledTimes(1)
 })
 
+it('单图正常归档全程不写入清单，弹窗不会闪现；成功后发出提示', async () => {
+  api.planArchive.mockResolvedValue({ errors: [], token: 'p', force: false, moves: [] })
+  let planDuringExecute = 'unset'
+  api.executeArchive.mockImplementation(async () => {
+    planDuringExecute = review.archivePlan
+    return { status: 'done' }
+  })
+  const review = useReviewStore(); await review.start([1])
+  const seq = review.noticeSeq
+  expect(await review.prepareArchive([1])).toBe(true)
+  expect(planDuringExecute).toBe(null)
+  expect(review.archivePlan).toBe(null)
+  expect(review.noticeSeq).toBe(seq + 1)
+  expect(review.notice).toContain('已归档 1 张')
+})
+
+it('预检有缺项或强制归档停在清单，不执行也不发成功提示', async () => {
+  api.planArchive.mockResolvedValueOnce({ errors: [{ image_id: 1, reason: '缺来源' }], token: 'p', force: false, moves: [] })
+  const review = useReviewStore(); await review.start([1])
+  const seq = review.noticeSeq
+  expect(await review.prepareArchive([1])).toBe(false)
+  expect(review.archivePlan.errors).toHaveLength(1)
+  review.archivePlan = null
+  api.planArchive.mockResolvedValueOnce({ errors: [], token: 'p', force: true, moves: [] })
+  expect(await review.prepareArchive([1], true)).toBe(false)
+  expect(review.archivePlan.force).toBe(true)
+  expect(api.executeArchive).not.toHaveBeenCalled()
+  expect(review.noticeSeq).toBe(seq)
+})
+
+it('归档失败写入错误，不发成功提示', async () => {
+  api.planArchive.mockResolvedValue({ errors: [], token: 'p', force: false, moves: [] })
+  api.executeArchive.mockRejectedValue(new Error('目标被占用'))
+  const review = useReviewStore(); await review.start([1])
+  const seq = review.noticeSeq
+  expect(await review.prepareArchive([1])).toBe(false)
+  expect(review.error).toBe('目标被占用')
+  expect(review.noticeSeq).toBe(seq)
+  expect(review.busy).toBe(false)
+})
+
 it('批量范围在准备时冻结，后续提交不变成别的图片', async () => {
   api.saveReview.mockResolvedValue({ lines: [], items: [image(1), image(2)] })
   const review = useReviewStore(); const selected = [1, 2]

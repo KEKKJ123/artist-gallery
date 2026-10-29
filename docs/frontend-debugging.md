@@ -18,8 +18,8 @@
 | 项目 | 要求 | 本机现状（2026-10-29 检查） |
 |---|---|---|
 | Node | ≥ 22.12，或 20.19+ | v24.18.0，符合 |
-| 前端依赖 | `npm ci` | `frontend/node_modules` 尚不存在，首次需执行 |
-| Python 环境 | 3.12+，依赖与解释器版本一致 | `.venv` 记录 Python 3.13，但 Pillow 是 cp312 二进制，**CLI 无法启动**，需先重建 `.venv`，见 README |
+| 前端依赖 | 首次或锁文件变化时 `npm ci` | 2026-10-29 本轮依赖已存在，交互测试与 `npm run build` 通过，无需重复安装 |
+| Python 环境 | 3.12+，依赖与解释器版本一致 | 早先出现过 Python／Pillow 版本不一致；2026-10-29 本轮已通过 `python -m artist_gallery serve --help` 及归档后端测试，不应再默认要求重建环境 |
 | 端口 | 后端用 9000 | 8765 位于 Windows 保留范围 `8741–8840`，无法监听 |
 
 ## 3. 已知问题：Vite 代理会让写操作返回 403
@@ -135,24 +135,68 @@ Set-Location ..
 
 ### 6.3 VS Code 断点调试
 
-`.vscode/` 已在 `.gitignore` 中，本机配置不会进入仓库。先 `npm run dev`，再按 F5 启动：
+**Python 服务端和 Vue 前端是两个进程，需要两个调试器。** Python 断点由 Python Debugger 扩展处理；Vue／JavaScript 断点由 VS Code 内置浏览器调试器处理。只在普通终端执行 Python 命令，不会自动连接 VS Code 调试器。
+
+安装 Microsoft 的 Python、Python Debugger，以及 Vue - Official 扩展。执行“Python: Select Interpreter”，选择项目 `.venv`。在本机 `.vscode/launch.json` 中添加以下配置（`.vscode/` 已被忽略，不提交图库路径）：
 
 ```json
 {
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Python：图库服务端",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "artist_gallery",
+      "args": ["serve", "${input:galleryRoot}", "--port", "9000"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Vue：Vite 源码（当前只读联调）",
       "type": "msedge",
       "request": "launch",
-      "name": "调试前端（Vite）",
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/frontend"
+    },
+    {
+      "name": "浏览器：后端页面（完整写入流程）",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:9000",
+      "webRoot": "${workspaceFolder}/src/artist_gallery/server/static"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "galleryRoot",
+      "type": "promptString",
+      "description": "专用测试图库的绝对路径（不要填正式图库）"
     }
   ]
 }
 ```
 
-可直接在 `frontend/src/stores/review.js` 等文件中打断点。
+使用 Chrome 时把 `msedge` 改成 `chrome`。
+
+**调试 Python 和真实归档流程：**
+
+1. 准备专用测试图库，参照第 4.1 节；启动前停止占用同端口的旧服务。
+2. 选择“Python：图库服务端”，按 F5，输入测试图库路径。等价命令是 `.\.venv\Scripts\python.exe -m artist_gallery serve "D:\GalleryDev" --port 9000`，但由调试器启动。
+3. 在 `server/editing.py` 的 `archive` 或 `core/archiving.py` 的 `archive` 中打断点；选择“浏览器：后端页面”启动另一个调试会话（也可普通浏览器打开 9000）。
+4. 点击归档，Python 断点会在请求处理时命中；F10 单步、F11 进入函数、F5 继续。同步请求在线程池中执行也能断点，不需要改为 `async def`。
+5. 当前 CLI 没有热重载参数。修改 Python 后停止并重新 F5；停在写入／文件操作中间时不要强行结束进程，尽量继续到请求完成。此页面使用构建产物，修改 Vue 后需重新构建，不能期待 `.vue` 源码断点直接绑定生产包。
+
+**调试 Vue 源码：**
+
+1. 前端终端进入 `frontend`，执行 `npm run dev`，等 Vite 打印就绪地址；若实际端口不是 5173，同步修改浏览器配置。
+2. 选择“Vue：Vite 源码”并启动。在 `frontend/src/stores/review.js` 或 `.vue` 的 `<script setup>` 可执行语句处打断点；点击界面触发，查看变量和调用栈。模板、CSS 布局使用浏览器 Elements 与 Vue DevTools 查看。
+3. 浏览器必须是调试器启动的窗口；只启动 Vite 的 Node 调试器不会调试浏览器中的 Vue 代码。空心断点先确认访问的是 5173、不是生产包 9000，且 `webRoot` 指向 `frontend`。
+4. **现有代理固定连接后端 8765，而以上 Python 示例使用 9000，两者不能直接联调。** 若 8765 可用，可将 Python 配置端口改成 8765 来做只读联调；端口不可用则需要另行调整 Vite 代理目标。即便端口一致，写操作仍有第 3 节的 403 限制。本次不修改代理或后端安全校验。
+5. 在未解决代理问题前，Vue 归档逻辑可用第 7 节的 JavaScript 调试终端运行 `npm test -- tests\review-ui.test.js tests\review-store.test.js`，对模拟 API 的测试打断点；真实写入则使用 9000 页面配合 Python 断点。
+
+以上启动配置已按 CLI 入口核对，但 VS Code／真实浏览器的断点命中仍需本机手动验证。
 
 ### 6.4 需要新增依赖的工具（暂不采用）
 
@@ -182,7 +226,7 @@ npm run test:watch    # 保存即重跑
 1. 在 `review.js` 的 `prepareArchive` 中，`plan = {...}` 赋值行和 `archivePlan.value = plan` 行各打一个断点。
 2. 在 Pinia 面板观察 `review.archivePlan`、`review.busy`、`review.noticeSeq`。
 3. 点击单张图“正常归档”：应停在第一个断点，**不会**停在第二个；`archivePlan` 全程为 null，页面不出现清单弹窗；请求返回后 `noticeSeq` 加一，右上角出现提示，约 3 秒后消失。
-4. 再试强制归档或选中多张归档：应停在第二个断点，`archivePlan` 有值，页面显示清单并要求勾选确认。
+4. 再试强制归档或选中多张归档：应停在第二个断点，`archivePlan` 有值。单图强制归档没有复选框，须点击弹窗中的“强制归档”才执行；多张归档仍要求勾选范围确认。
 5. 在 Elements 面板确认提示框外层 `.toast-region` 的 `pointer-events` 为 `none`，并在提示显示期间点击顶栏按钮，确认能响应。
 6. 写操作需要方式 B，或完成第 3 节办法 ①② 后使用方式 A。
 

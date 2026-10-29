@@ -78,6 +78,65 @@ it('清单弹层捕获 Escape，不让背后的检查页或网格响应', async 
   expect(review.bulk.ready).toBe(false)
 })
 
+it('单图强制归档无需复选框，点击明确按钮才提交确认且等待期间不能重复提交', async () => {
+  api.planArchive.mockResolvedValue({ errors: [], token: 'force-one', force: true, moves: [] })
+  let finish
+  api.executeArchive.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+  wrapper = mount(OperationDialogs, { global: { plugins: [pinia] } })
+  await review.prepareArchive([1], true)
+  await nextTick()
+  expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
+  expect(wrapper.text()).toContain('只放宽来源门槛')
+  expect(api.executeArchive).not.toHaveBeenCalled()
+  const submit = wrapper.findAll('button').find((b) => b.text() === '强制归档')
+  expect(submit.element.disabled).toBe(false)
+  await submit.trigger('click')
+  expect(api.executeArchive).toHaveBeenCalledExactlyOnceWith({ ids: [1], token: 'force-one', force: true, confirmed: true }, 'lib')
+  expect(submit.element.disabled).toBe(true)
+  await submit.trigger('click')
+  expect(api.executeArchive).toHaveBeenCalledTimes(1)
+  finish({ status: 'done' })
+  await flushPromises()
+  expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  expect(wrapper.emitted('changed')).toHaveLength(1)
+})
+
+it.each(['返回／取消', 'Escape'])('单图强制归档通过 %s 取消不会提交', async (action) => {
+  review.archivePlan = { ids: [1], errors: [], moves: [], force: true }
+  wrapper = mount(OperationDialogs, { attachTo: document.body, global: { plugins: [pinia] } })
+  if (action === 'Escape') {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  } else {
+    await wrapper.findAll('button').find((b) => b.text() === action).trigger('click')
+  }
+  await nextTick()
+  expect(review.archivePlan).toBe(null)
+  expect(api.executeArchive).not.toHaveBeenCalled()
+})
+
+it('单图强制归档遇到文件预检错误仍禁止执行', async () => {
+  review.archivePlan = { ids: [1], errors: [{ image_id: 1, reason: '文件缺失' }], moves: [], force: true }
+  wrapper = mount(OperationDialogs, { global: { plugins: [pinia] } })
+  const submit = wrapper.findAll('button').find((b) => b.text() === '强制归档')
+  expect(submit.element.disabled).toBe(true)
+  await submit.trigger('click')
+  expect(api.executeArchive).not.toHaveBeenCalled()
+})
+
+it.each([false, true])('多图归档仍须勾选范围确认（force=%s）', async (force) => {
+  review.archivePlan = { ids: [1, 2], errors: [], moves: [], force, token: 'bulk' }
+  api.executeArchive.mockResolvedValue({ status: 'done' })
+  wrapper = mount(OperationDialogs, { global: { plugins: [pinia] } })
+  const submit = wrapper.findAll('button').find((b) => b.text() === '执行归档')
+  expect(submit.element.disabled).toBe(true)
+  await submit.trigger('click')
+  expect(api.executeArchive).not.toHaveBeenCalled()
+  await wrapper.get('input[type="checkbox"]').setValue(true)
+  expect(submit.element.disabled).toBe(false)
+  await submit.trigger('click'); await flushPromises()
+  expect(api.executeArchive).toHaveBeenCalledWith({ ids: [1, 2], token: 'bulk', force, confirmed: true }, 'lib')
+})
+
 it('已有来源的解除是独立动作，清空链接不解除来源', async () => {
   wrapper = mount(ReviewScreen, { global: { plugins: [pinia] } })
   await wrapper.get('#review-links').setValue('')

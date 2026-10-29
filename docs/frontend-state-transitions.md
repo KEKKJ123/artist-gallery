@@ -23,7 +23,7 @@
 |---|---|---|---|
 | 检查页“正常归档／强制归档…” | `ReviewScreen.vue` | `prepareArchive([当前图], force)` | 返回 true 时触发 `changed`，`App` 重新加载列表 |
 | 网格“归档所选…／强制归档所选…” | `App.vue` | `prepareArchive(选中的图, force)` | 返回 true 时 `App` 重新加载列表 |
-| 清单弹窗“执行归档” | `OperationDialogs.vue` | `archive(confirmed)` → `runArchive(archivePlan.value, confirmed)` | 返回 true 时触发 `changed`，重新加载列表 |
+| 清单弹窗“强制归档”（单图）／“执行归档” | `OperationDialogs.vue` | 单图强制按钮点击传 `archive(true)`；其他情况用复选框的 `confirmed` → `runArchive` | 返回 true 时触发 `changed`，重新加载列表 |
 
 ## 3. 改动前：单张正常归档为什么出现“闪现”
 
@@ -90,7 +90,7 @@ stateDiagram-v2
 - `prepareArchive` 先把预检结果放在局部变量 `plan`，满足 `ids.length === 1 && !force && !plan.errors.length` 才调用 `runArchive(plan, false)`，否则赋给 `archivePlan` 并返回 false。
 - `archive`（弹窗调用）只是 `runArchive(archivePlan.value, confirmed)`；执行逻辑只保留一份。
 - 预检返回的 `token` 仍随执行请求一并提交，协议不变，后端未修改。
-- **不改变确认规则**：强制归档和多图归档仍必须显示清单并勾选确认（ADR 0007、AGENTS 规则 10）。直达条件不能放宽。
+- **强制归档仍需显式确认**：单图显示清单，直接点击“强制归档”按钮即提交 `confirmed: true`，不再重复勾选复选框；取消／Esc 不提交。多图仍须勾选范围确认后执行（ADR 0007、AGENTS 规则 10）。正常归档的直达条件不变，预检错误与执行期间仍禁用按钮。
 - 返回值：`prepareArchive` 在直达路径返回 `runArchive` 的结果；需要清单时返回 false，调用方据此不刷新列表。
 
 ## 5. 提示框自身的状态

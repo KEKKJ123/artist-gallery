@@ -4,6 +4,7 @@ import { useReviewStore } from '../stores/review.js'
 const emit = defineEmits(['changed', 'modal'])
 const review = useReviewStore()
 const confirmed = ref(false)
+const singleForceArchive = computed(() => review.archivePlan?.force && review.archivePlan.ids.length === 1)
 const recovery = ref(null)
 const modalOpen = computed(() => !!review.archivePlan || review.bulk.ready || !!recovery.value)
 let previousFocus
@@ -39,7 +40,7 @@ watch(() => [review.archivePlan, review.bulk.ready, recovery.value], () => {
   confirmed.value = false
   emit('modal', !!review.archivePlan || review.bulk.ready || !!recovery.value)
 }, { immediate: true })
-async function archive() { if (await review.archive(confirmed.value)) emit('changed') }
+async function archive() { if (await review.archive(singleForceArchive.value || confirmed.value)) emit('changed') }
 async function saveBulk() { if (confirmed.value && await review.saveBulk()) emit('changed') }
 async function recover(action) {
   if (confirmed.value && await review.recover(recovery.value.id, action)) {
@@ -65,13 +66,14 @@ async function recover(action) {
       <ul class="file-list">
         <li v-for="move in review.archivePlan.moves" :key="move.file_id">图片 #{{ move.image_id }}<br />{{ move.from }} → {{ move.to }}</li>
       </ul>
-      <label v-if="!review.archivePlan.errors.length && (review.archivePlan.force || review.archivePlan.ids.length > 1)" class="confirm">
+      <p v-if="singleForceArchive">只放宽来源门槛，来源核查状态保持不变；归档后可以撤销。</p>
+      <label v-if="!review.archivePlan.errors.length && review.archivePlan.ids.length > 1" class="confirm">
         <input v-model="confirmed" type="checkbox" />
         我确认对以上 {{ review.archivePlan.ids.length }} 张执行{{ review.archivePlan.force ? '强制' : '正常' }}归档；{{ review.archivePlan.force ? '只放宽来源门槛，不伪造来源确认' : '不包含未选图片' }}。
       </label>
       <footer>
         <button :disabled="review.busy" @click="review.archivePlan = null">返回／取消</button>
-        <button class="primary" :disabled="review.busy || review.archivePlan.errors.length > 0 || ((review.archivePlan.force || review.archivePlan.ids.length > 1) && !confirmed)" @click="archive">执行归档</button>
+        <button class="primary" :disabled="review.busy || review.archivePlan.errors.length > 0 || (review.archivePlan.ids.length > 1 && !confirmed)" @click="archive">{{ singleForceArchive ? '强制归档' : '执行归档' }}</button>
       </footer>
     </section>
   </div>

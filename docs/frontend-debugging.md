@@ -1,6 +1,6 @@
 # 前端本地调试方案
 
-> **状态：方案文档。** 命令按 [AGENTS.md](../AGENTS.md)、`frontend/package.json`、`frontend/vite.config.js` 整理；第 3 节的 403 结论已用 `WriteGuard` 模拟验证，**其余步骤（`npm ci`、Vite 实际运行、DevTools 扩展、VS Code 断点）尚未在本机端到端跑通**，首次使用时请对照第 7 节核对。
+> **状态：方案文档。** 命令按 [AGENTS.md](../AGENTS.md)、`frontend/package.json`、`frontend/vite.config.js` 整理；第 3 节的 403 结论已用 `WriteGuard` 模拟验证，**其余步骤（`npm ci`、Vite 实际运行、DevTools 扩展、VS Code 断点）尚未在本机端到端跑通**，首次使用时请对照第 9 节“常见问题”核对。
 > 配套文档：[frontend-visual-design.md](frontend-visual-design.md)、[frontend-state-transitions.md](frontend-state-transitions.md)。
 
 ## 1. 三种调试方式怎么选
@@ -127,7 +127,7 @@ Set-Location ..
 
 | 面板 | 用途 |
 |---|---|
-| Elements | 查看 DOM、样式；验证 Toast 的 `pointer-events`、`z-index` |
+| Elements | 查看 DOM、样式；验证右上角提示框（`.toast-region`、`.toast`）的 `pointer-events`、`z-index`、`top` 位置 |
 | Network | 查看 `/api/...` 请求、状态码、响应体；定位 403、409 等 |
 | Sources | 给源码打断点、单步执行（方式 A） |
 | Console | 查看前端抛出的错误 |
@@ -173,15 +173,18 @@ npm run test:watch    # 保存即重跑
 
 适用于状态转移类问题（如归档流程中 `archivePlan` 的变化），不需要后端和图库：在测试里模拟 `lib/api.js` 的函数，断言 store 的状态序列。现有测试位于 `frontend/tests/`，如 `inbox-store.test.js`、`prefs-store.test.js`，可参考其写法。VS Code 里也可以给测试代码打断点，用“JavaScript 调试终端”运行 `npm run test:watch`。
 
-状态逻辑改动应先写这类测试，再对照 [frontend-state-transitions.md](frontend-state-transitions.md) 第 8 节的矩阵。
+状态逻辑改动应先写这类测试，再对照 [frontend-state-transitions.md](frontend-state-transitions.md) 第 9 节的覆盖表。已有的归档流程测试可直接参考 `review-store.test.js` 里“单图正常归档全程不写入清单，弹窗不会闪现；成功后发出提示”一条：它在 `executeArchive` 的 mock 里读取 `review.archivePlan`，从而断言请求进行中清单为空；提示框的计时测试见 `toast-notice.test.js`（用假计时器）。
 
-## 8. 用“归档弹窗闪现”走一遍
+## 8. 用“单张正常归档”走一遍
 
-1. 在 `review.js` 的 `prepareArchive` 中，`archivePlan.value = ...` 赋值行打断点。
-2. 在 Pinia 面板观察 `review.archivePlan`、`review.busy`。
-3. 点击单张图“正常归档”，单步执行，应看到：`archivePlan` 被赋值 → 清单弹窗渲染 → 进入 `archive()` → 请求返回后 `archivePlan` 置空。
-4. 与 [frontend-state-transitions.md](frontend-state-transitions.md) 第 3 节对照，确认结论。
-5. 写操作需要方式 B，或完成第 3 节办法 ①② 后使用方式 A。
+单张正常归档改动前会先弹清单再自动执行，现在已改为直接执行（[frontend-state-transitions.md](frontend-state-transitions.md) 第 3、4 节）。可以用下面的步骤在真实浏览器里确认，**这一步目前没有人工执行过**：
+
+1. 在 `review.js` 的 `prepareArchive` 中，`plan = {...}` 赋值行和 `archivePlan.value = plan` 行各打一个断点。
+2. 在 Pinia 面板观察 `review.archivePlan`、`review.busy`、`review.noticeSeq`。
+3. 点击单张图“正常归档”：应停在第一个断点，**不会**停在第二个；`archivePlan` 全程为 null，页面不出现清单弹窗；请求返回后 `noticeSeq` 加一，右上角出现提示，约 3 秒后消失。
+4. 再试强制归档或选中多张归档：应停在第二个断点，`archivePlan` 有值，页面显示清单并要求勾选确认。
+5. 在 Elements 面板确认提示框外层 `.toast-region` 的 `pointer-events` 为 `none`，并在提示显示期间点击顶栏按钮，确认能响应。
+6. 写操作需要方式 B，或完成第 3 节办法 ①② 后使用方式 A。
 
 ## 9. 常见问题
 

@@ -8,6 +8,7 @@ import PreviewOverlay from './components/PreviewOverlay.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import SidePanel from './components/SidePanel.vue'
 import ThumbGrid from './components/ThumbGrid.vue'
+import ToastNotice from './components/ToastNotice.vue'
 import TopBar from './components/TopBar.vue'
 import { useGalleryKeys } from './composables/use-gallery-keys.js'
 import { useGalleryNavigation } from './composables/use-gallery-navigation.js'
@@ -71,7 +72,6 @@ const emptyTitle = computed(() => {
       <button v-if="!review.open && inbox.isInbox && inbox.selected.size" :disabled="review.busy" @click="archiveSelected(false)">归档所选…</button>
       <button v-if="!review.open && inbox.isInbox && inbox.selected.size" :disabled="review.busy" @click="archiveSelected(true)">强制归档所选…</button>
       <button :disabled="review.busy || !review.operations.can_undo" :title="review.operations.message" @click="undo">撤销最近一次</button>
-      <span v-if="review.notice" role="status">{{ review.notice }}</span>
     </div>
     <div v-if="review.error" class="error" role="alert">{{ review.error }} <button @click="review.error = ''">收起提示</button></div>
     <OperationDialogs @changed="inbox.load()" @modal="recoveryModal = $event" />
@@ -125,6 +125,7 @@ const emptyTitle = computed(() => {
     <PreviewOverlay :suspended="helpOpen || operationModal" />
     </template>
     <ShortcutHelp :open="helpOpen" @close="helpOpen = false" />
+    <ToastNotice :message="review.notice" :seq="review.noticeSeq" />
   </div>
 </template>
 
@@ -135,7 +136,6 @@ const emptyTitle = computed(() => {
   height: 100%;
 }
 .workbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px var(--pad); border-bottom: 1px solid var(--border); align-items: center; }
-.workbar span { color: var(--fg-dim); font-size: 12px; }
 .workbar button { min-height: 36px; }
 .error {
   display: flex;
